@@ -1,0 +1,55 @@
+{
+  "_comment": "Second worked example: triple-negative breast cancer. Demonstrates that retargeting the profiler to a new disease means editing this file and the researcher CSV -- no code changes. 'Triple Negative Breast Neoplasms' is the exact MeSH heading; the text_terms catch papers too new to be MeSH-indexed yet.",
+
+  "focus": {
+    "label": "Triple-negative breast cancer",
+    "mesh_terms": ["Triple Negative Breast Neoplasms"],
+    "text_terms": ["triple-negative breast cancer", "triple negative breast cancer", "TNBC"]
+  },
+
+  "start_year": 2018,
+  "max_papers": 500,
+  "min_focus_papers": 10,
+  "topics_per_researcher": 12,
+  "min_papers_per_topic": 2,
+  "max_stars": 5,
+
+  "extra_boring_mesh": [
+    "Breast Neoplasms",
+    "Antineoplastic Combined Chemotherapy Protocols",
+    "Antineoplastic Agents",
+    "Antineoplastic Agents, Immunological",
+    "Biomarkers, Tumor",
+    "Prognosis",
+    "Neoplasm Staging",
+    "Disease-Free Survival",
+    "Neoplasm Recurrence, Local",
+    "Neoadjuvant Therapy",
+    "Antibodies, Monoclonal, Humanized",
+    "Cell Line, Tumor"
+  ],
+
+  "tracked_terms": {
+    "Sacituzumab govitecan (Trodelvy)": ["sacituzumab govitecan", "sacituzumab", "trodelvy"],
+    "Pembrolizumab (Keytruda)": ["pembrolizumab", "keytruda"],
+    "Atezolizumab (Tecentriq)": ["atezolizumab", "tecentriq"],
+    "Immunotherapy / checkpoint (class)": ["immunotherapy", "immune checkpoint", "checkpoint inhibitor", "checkpoint inhibitors", "pd-l1", "pd-1"],
+    "PARP inhibitors": ["olaparib", "lynparza", "talazoparib", "talzenna", "veliparib", "parp inhibitor", "parp inhibitors"],
+    "BRCA / germline mutations": ["brca", "brca1", "brca2", "germline mutation", "germline mutations"],
+    "Platinum chemotherapy": ["carboplatin", "cisplatin", "platinum-based", "platinum"],
+    "Capecitabine": ["capecitabine", "xeloda"],
+    "Antibody-drug conjugates (class)": ["antibody-drug conjugate", "antibody-drug conjugates", "antibody drug conjugate", "datopotamab", "trastuzumab deruxtecan", "enhertu"],
+    "Neoadjuvant therapy / pCR": ["neoadjuvant", "pathologic complete response", "pathological complete response"],
+    "Residual disease": ["residual disease", "residual cancer burden"],
+    "Metastatic disease": ["metastatic", "metastasis", "metastases"],
+    "ctDNA / liquid biopsy": ["ctdna", "circulating tumor dna", "liquid biopsy", "circulating tumor cells"],
+    "AKT / PI3K pathway": ["capivasertib", "ipatasertib", "akt inhibitor", "pi3k", "alpelisib"],
+    "Androgen receptor": ["androgen receptor"],
+    "Immune microenvironment / TILs": ["tumor-infiltrating lymphocytes", "tils", "immune microenvironment", "tumor microenvironment"],
+    "Disparities / equity": ["disparities", "disparity", "racial", "health equity", "socioeconomic"],
+    "Quality of life / PROs": ["quality of life", "patient-reported", "fatigue"],
+    "Biomarkers / prediction": ["biomarker", "biomarkers", "predictive model", "precision medicine"],
+    "Real-world / registry data": ["real-world", "real world", "registry", "claims data", "population-based"],
+    "Clinical trial (RCT)": ["randomized", "randomised", "placebo-controlled", "phase 3", "phase iii", "phase 2", "phase ii"]
+  }
+}
