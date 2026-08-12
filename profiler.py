@@ -72,6 +72,11 @@ except ImportError:
 
 import auto_topics
 
+# Below this many papers a topic profile is not evidence, it is decoration:
+# two papers on one subject share enough headings to fill a twelve-topic
+# list that reads like a career. Report the count instead.
+MIN_PROFILE_PAPERS = 5
+
 
 # MeSH headings too generic to be worth reporting, regardless of specialty.
 # Add disease-specific ones (the focus condition itself, its umbrella terms)
@@ -375,7 +380,7 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
     corpus = [a for arts in fetched.values() for a in arts if a["is_focus"]]
     if not corpus:
         log("\nNo papers matched the condition. Nothing to profile.")
-        return None, []
+        return None, [], []
     vocabulary = auto_topics.discover_vocabulary(corpus, focus)
     background = auto_topics.find_undiscriminating(corpus, vocabulary, focus)
     log(f"\nLearned {len(vocabulary)} drug/substance terms from "
@@ -387,7 +392,12 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
     # A 10-paper bar is right for a roster of academic leaders and wrong for
     # a community practice, so drop it rather than hand back an empty
     # report. Everything is already fetched; only the threshold changes.
-    for bar in (min_focus_papers, 5, 3, 1):
+    #
+    # It stops at MIN_PROFILE_PAPERS. Below that there is nothing to rank:
+    # two papers on one subject produce a twelve-topic profile that looks
+    # exactly like a career's worth of work. Those people are reported with
+    # their paper count instead, which is the honest answer.
+    for bar in (min_focus_papers, MIN_PROFILE_PAPERS):
         if bar > min_focus_papers:
             continue
         profiles, skipped = {}, []
@@ -410,7 +420,7 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
                 "first_author_papers":
                     sum(1 for a in hits if a["first_author"]),
             }
-        if len(profiles) >= 3 or bar == 1:
+        if len(profiles) >= 3 or bar == MIN_PROFILE_PAPERS:
             if bar != min_focus_papers:
                 log(f"Few researchers cleared {min_focus_papers} papers -- "
                     f"showing everyone with {bar}+ instead.")
@@ -430,7 +440,10 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
                    corpus_size=len(corpus))
     out_csv = _write_csv(rows, focus["label"], out_dir)
     log(f"\nSaved {out_csv}")
-    return out_csv, rows
+
+    thin = [{"name": name, "papers": n, "why": why}
+            for name, n, why in sorted(excluded, key=lambda x: -x[1])]
+    return out_csv, rows, thin
 
 
 def _rank_topics(counts, doc_freq, corpus_size, min_papers_per_topic, limit):
@@ -479,7 +492,12 @@ def _report(profiles, excluded, label, min_focus_papers, start_year,
             ranked = [(t, n) for t, n in data["total"].most_common()
                       if n >= min_papers_per_topic][:topics_per_researcher]
         if not ranked:
-            log("   -- no topic clears the threshold --")
+            # Papers exist but nothing recurs across them. Say so here --
+            # previously this person was simply absent from the report,
+            # which reads as "not searched" rather than "nothing found".
+            log("   -- no subject recurs across their papers --")
+            excluded.append((name, data["focus_papers"],
+                             "no subject recurs across their papers"))
             continue
         for topic, n in ranked:
             n_first = data["first"][topic]

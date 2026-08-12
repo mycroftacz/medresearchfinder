@@ -45,7 +45,8 @@ def new_run():
         run_id = f"run{_RUN_SEQ}"
         RUNS[run_id] = {"lines": [], "done": False, "results": [],
                         "note": "", "doctors": [], "csv": "",
-                        "condition": "", "problems": [], "detail": ""}
+                        "condition": "", "problems": [], "detail": "",
+                        "thin": []}
         # Keep the history short; these hold every paper's worth of log.
         for stale in list(RUNS)[:-5]:
             RUNS.pop(stale, None)
@@ -112,8 +113,11 @@ PAGE = """<!DOCTYPE html>
   .note {{ background: #f6f6f6; border-radius: 6px; padding: .7rem .9rem;
            color: #444; font-size: .93rem; margin: 1.2rem 0 0; }}
   #results {{ margin-top: 1.5rem; }}
-  #results h2, #searched h2 {{ border-bottom: 2px solid #1a1a1a;
-                               padding-bottom: .25rem; }}
+  #results h2, #searched h2, #thin h2 {{ border-bottom: 2px solid #1a1a1a;
+                                          padding-bottom: .25rem; }}
+  #thin {{ margin-top: 2rem; }}
+  #thin ul {{ padding-left: 1.2rem; }}
+  .caution-inline {{ color: #92400e; font-size: .85rem; margin: 0 0 .4rem; }}
   #searched {{ margin-top: 2rem; }}
   .plain {{ font-size: .93rem; color: #333; line-height: 1.7; }}
   .limit {{ color: #6b5b1f; font-size: .88rem; }}
@@ -224,6 +228,7 @@ hospital or medical school page listing doctors by name.</span></div>
 
 <div id="note"></div>
 <div id="results"></div>
+<div id="thin"></div>
 <div id="searched"></div>
 
 <script>
@@ -256,6 +261,7 @@ async function start() {{
   }});
   document.getElementById('run').disabled = true;
   document.getElementById('results').innerHTML = '';
+  document.getElementById('thin').innerHTML = '';
   document.getElementById('searched').innerHTML = '';
   document.getElementById('note').innerHTML =
     '<p class="note">Gathering data, do not refresh this page, ' +
@@ -276,8 +282,10 @@ function render(results) {{
       const st = t.stars ? ' <span class="stars">' + esc(t.stars) + '</span>' : '';
       return '<li>' + esc(t.topic) + st + '</li>';
     }}).join('');
+    const caution = doc.caution
+      ? '<p class="caution-inline">' + esc(doc.caution) + '</p>' : '';
     return '<div class="doc"><h3>' + esc(doc.name) + '</h3>' +
-           '<p class="meta">' + esc(doc.meta) + '</p>' +
+           '<p class="meta">' + esc(doc.meta) + '</p>' + caution +
            '<ul>' + topics + '</ul></div>';
   }}).join('');
 }}
@@ -323,6 +331,21 @@ async function poll() {{
         '</b>, detected from the pages you entered.</p>' : '';
     document.getElementById('results').innerHTML =
       '<h2>Most prominent researchers</h2>' + banner + render(data.results);
+  }}
+
+  if (data.done && data.thin && data.thin.length) {{
+    // "Nothing found" is an answer, not an omission -- most excellent
+    // clinicians do not publish. Showing it beats silence.
+    const rows = data.thin.map(function (t) {{
+      const count = t.papers === 1 ? '1 paper' : t.papers + ' papers';
+      return '<li>' + esc(t.name) + ' — ' + esc(count) + '</li>';
+    }}).join('');
+    document.getElementById('thin').innerHTML =
+      '<h2>Too little published research to profile</h2>' +
+      '<p class="plain">These doctors were searched, but there is not ' +
+      'enough published work to describe what they research. This says ' +
+      'nothing about their skill as clinicians — most doctors do not ' +
+      'publish.</p><ul class="plain">' + rows + '</ul>';
   }}
 
   if (data.done && data.doctors && data.doctors.length) {{
@@ -490,9 +513,9 @@ def pipeline(run_id, urls, email):
                                    f"{total} doctors. Do not refresh this "
                                    f"page, this may take a few minutes :)")
 
-        csv_path, result_rows = profiler.run_auto(
+        csv_path, result_rows, thin = profiler.run_auto(
             detected, researchers, out_dir, log=log, on_progress=progress)
-        set_field(run_id, condition=detected, csv=csv_path or "")
+        set_field(run_id, condition=detected, csv=csv_path or "", thin=thin)
 
         # Reshape the flat CSV rows into per-doctor blocks for the page.
         by_doctor = {}
@@ -500,8 +523,12 @@ def pipeline(run_id, urls, email):
             entry = by_doctor.setdefault(row["researcher"], {
                 "name": row["researcher"],
                 "meta": f"{row['their_focus_papers']} papers",
+                "caution": "",
                 "topics": [],
             })
+            if row["their_focus_papers"] < profiler.MIN_PROFILE_PAPERS * 2:
+                entry["caution"] = ("Based on few papers — read this as a "
+                                    "hint, not a picture of their work.")
             entry["topics"].append({
                 "topic": row["topic"],
                 "stars": "*" * row["first_author_papers"]
@@ -548,11 +575,12 @@ class Handler(BaseHTTPRequestHandler):
                             "note": run.get("note", ""),
                             "problems": list(run.get("problems", [])),
                             "detail": run.get("detail", ""),
+                            "thin": list(run.get("thin", [])),
                             "doctors": list(run.get("doctors", [])),
                             "csv": run.get("csv", "")} if run else
                            {"done": True, "results": [], "doctors": [],
                             "csv": "", "condition": "", "problems": [],
-                            "detail": "",
+                            "detail": "", "thin": [],
                             "note": "This run is no longer available. "
                                     "Press Run to start a new one."})
             self._send(json.dumps(payload), "application/json")
