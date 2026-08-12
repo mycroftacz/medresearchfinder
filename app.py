@@ -435,6 +435,16 @@ def explain_rejections(rejected):
             "That page does not list doctors to choose from — it may be an "
             "article, a patient-information page, or a single doctor's "
             "profile. " + FIND_THE_DIRECTORY)
+    if "too_complex" in reasons:
+        problems.append(
+            "That page is too big and complicated for this tool to read — "
+            "booking sites like Zocdoc and Healthgrades pack thousands of "
+            "listings, filters and adverts into one page.")
+        problems.append(
+            "This tool works best on a hospital's or medical school's own "
+            "directory, where doctors are listed with the institution they "
+            "belong to. That institution is what lets it find their "
+            "research; a booking listing does not carry one.")
     if "no_doctors" in reasons:
         problems.append(
             "No doctors could be read from that page. If it does list them, "

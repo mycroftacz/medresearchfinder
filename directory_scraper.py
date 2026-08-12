@@ -38,6 +38,10 @@ FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape"
 MAX_URLS = 10
 MAX_DOCTORS = 150
 
+# Past this much page text the extractor returns nothing at all rather
+# than a partial answer, so a silent empty result needs its own message.
+TOO_LARGE_CHARS = 250000
+
 
 # Sites that are certainly not clinician directories. This is not a
 # security boundary -- it is a courtesy, so an obvious mistake fails
@@ -281,9 +285,13 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
     """
     payload = json.dumps({
         "url": url,
-        "formats": ["extract"],
+        # Ask for the page text alongside the extraction: when extraction
+        # comes back empty, the text length is what distinguishes "the
+        # page never loaded" from "the page was too big to read".
+        "formats": ["extract", "markdown"],
         "waitFor": wait_ms,
         "onlyMainContent": True,
+        "blockAds": True,
         "extract": {"prompt": EXTRACT_PROMPT, "schema": EXTRACT_SCHEMA},
     }).encode()
     request = urllib.request.Request(
@@ -321,7 +329,9 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
         raise RuntimeError(f"Firecrawl reported failure for {url}: "
                            f"{str(data)[:500]}")
 
-    extract = (data.get("data") or {}).get("extract") or {}
+    page = data.get("data") or {}
+    extract = page.get("extract") or {}
+    page_chars = len(page.get("markdown") or "")
     institution = (extract.get("institution") or "").strip()
     aliases = [a.strip() for a in (extract.get("institution_aliases") or [])
                if a and a.strip()]
@@ -336,6 +346,14 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
     clinical_focus = (extract.get("clinical_focus") or "").strip()
     organization = (extract.get("organization_type") or "").strip()
     profession = (extract.get("people_profession") or "").strip()
+
+    # A huge page that yielded nothing was not empty -- it overwhelmed the
+    # reader. Booking marketplaces do this: hundreds of thousands of
+    # characters of listings, filters and scripts. Name that specifically
+    # rather than reporting it as a page with no doctors on it.
+    if not physicians and page_chars > TOO_LARGE_CHARS:
+        log(f"    page is too large to read ({page_chars:,} characters)")
+        return institution, [], clinical_focus, "too_complex", ""
 
     # Check the profession first: "this page lists lawyers" is a more
     # useful thing to tell someone than "this page is not a directory".
