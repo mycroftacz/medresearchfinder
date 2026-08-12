@@ -177,8 +177,23 @@ def compile_patterns(tracked_terms):
     }
 
 
+def search_name(author):
+    """The name as PubMed is asked for it: surname plus FIRST initial only.
+
+    Searching "Hudesman DP" finds 11 of his 64 papers, because most are
+    indexed without the middle initial. So the search stays broad and the
+    middle initial is applied afterwards, against the author records that
+    come back.
+    """
+    parts = author.split()
+    if len(parts) < 2:
+        return author
+    return f"{' '.join(parts[:-1])} {parts[-1][0]}"
+
+
 def build_query(author, affiliation, start_year):
     """The exact PubMed query used, so a person can check it themselves."""
+    author = search_name(author)
     variants = [a.strip() for a in affiliation.split("|") if a.strip()]
     if len(variants) > 1:
         clause = "(" + " OR ".join(f"{v}[Affiliation]" for v in variants) + ")"
@@ -221,6 +236,56 @@ def _text_of(citation):
     return " ".join(parts)
 
 
+def _initials_compatible(recorded, wanted):
+    """Could these initials belong to the same person?
+
+    One side is often shorter than the other -- the same author appears as
+    "Hudesman D" on one paper and "Hudesman DP" on the next -- so a prefix
+    match either way counts. "Capo JT" against "Capo JA" does not, which is
+    what separates three unrelated surgeons who share a surname.
+    """
+    recorded, wanted = recorded.upper(), wanted.upper()
+    if not recorded or not wanted:
+        return True                        # nothing to judge on: keep it
+    return recorded.startswith(wanted) or wanted.startswith(recorded)
+
+
+def _in_department(citation, surname, initials, dept_pattern):
+    """Was this paper written from the specialty's department?
+
+    PubMed affiliations name the department: "Department of Otolaryngology,
+    NYU Langone". For a whole-specialty search that string is the only
+    thing separating an ear surgeon from an oncologist who shares his name
+    and hospital -- there is no disease heading to filter on, because
+    papers are never tagged with their author's specialty.
+    """
+    if dept_pattern is None:
+        return True
+    for author in citation.get("Article", {}).get("AuthorList", []):
+        if "LastName" not in author:
+            continue
+        if str(author["LastName"]).lower() != surname.lower():
+            continue
+        if not _initials_compatible(str(author.get("Initials", "")), initials):
+            continue
+        for affiliation in author.get("AffiliationInfo", []):
+            if dept_pattern.search(str(affiliation.get("Affiliation", ""))):
+                return True
+    return False
+
+
+def _is_this_person(citation, surname, initials):
+    """Is our researcher among the authors, by surname and initials?"""
+    for author in citation.get("Article", {}).get("AuthorList", []):
+        if "LastName" not in author:
+            continue
+        if str(author["LastName"]).lower() != surname.lower():
+            continue
+        if _initials_compatible(str(author.get("Initials", "")), initials):
+            return True
+    return False
+
+
 def _is_first_author(citation, surname, initials):
     """Was this researcher the first listed author?
 
@@ -237,9 +302,8 @@ def _is_first_author(citation, surname, initials):
         return False
     if not initials:
         return True
-    their_initials = str(first.get("Initials", ""))
     # "Axelrad J" should match a record indexed as "Axelrad JE"
-    return their_initials.upper().startswith(initials.upper())
+    return _initials_compatible(str(first.get("Initials", "")), initials)
 
 
 def _is_focus(mesh, text, focus, focus_patterns):
@@ -248,9 +312,15 @@ def _is_focus(mesh, text, focus, focus_patterns):
     return any(p.search(text) for p in focus_patterns)
 
 
-def fetch_articles(pmids, surname, initials, focus, focus_patterns, pause):
-    """One record per paper, with its topics and first-author flag."""
+def fetch_articles(pmids, surname, initials, focus, focus_patterns, pause,
+                   dropped=None, dept_pattern=None):
+    """One record per paper, with its topics and first-author flag.
+
+    `dropped` collects how many papers belonged to a namesake, so the
+    caller can report that the filtering happened.
+    """
     articles = []
+    skipped_namesakes = dropped if dropped is not None else [0]
 
     for i in range(0, len(pmids), 200):
         chunk = ",".join(pmids[i:i + 200])
@@ -266,6 +336,14 @@ def fetch_articles(pmids, surname, initials, focus, focus_patterns, pause):
 
         for entry in records.get("PubmedArticle", []):
             citation = entry["MedlineCitation"]
+            # PubMed matched on surname plus first initial, which pulls in
+            # namesakes. Drop the ones whose initials rule them out.
+            if not _is_this_person(citation, surname, initials):
+                skipped_namesakes[0] += 1
+                continue
+            if not _in_department(citation, surname, initials, dept_pattern):
+                skipped_namesakes[0] += 1
+                continue
             mesh = [
                 str(h["DescriptorName"])
                 for h in citation.get("MeshHeadingList", [])
@@ -341,10 +419,20 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
     pause = 0.11 if Entrez.api_key else 0.35
 
     focus = auto_topics.build_focus(condition, pause=pause)
+
+    # A disease focus disambiguates by itself: papers on it are the
+    # person's, whoever else shares their name. A specialty focus cannot do
+    # that, so the department named in the paper's affiliation stands in.
+    dept_pattern = None
+    if focus.get("is_discipline") and condition:
+        stem = re.split(r"[\s,]+", condition.strip())[0][:8]
+        if len(stem) >= 5:
+            dept_pattern = re.compile(re.escape(stem), re.I)
+
     log(f"Profiling for: {focus['label']}")
     if focus.get("is_discipline"):
-        log("   (a specialty rather than one condition, so all of each "
-            "doctor's research counts)")
+        log("   (a specialty, so papers are matched by the department "
+            "named on them rather than by a condition)")
     elif len(focus["match_terms"]) > 1:
         log(f"   (also counting {len(focus['match_terms']) - 1} synonyms "
             f"PubMed indexes this under)")
@@ -368,14 +456,18 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
                 log("    no papers found -- check name/affiliation spelling")
                 excluded.append((name, 0, "no papers found"))
                 continue
+            dropped = [0]
             articles = fetch_articles(pmids, surname, initials,
-                                      {}, [], pause)
+                                      {}, [], pause, dropped=dropped,
+                                      dept_pattern=dept_pattern)
             for article in articles:
                 article["is_focus"] = auto_topics.is_focus_paper(article, focus)
             hits = [a for a in articles if a["is_focus"]]
             n_first = sum(1 for a in hits if a["first_author"])
             log(f"    {len(articles)} papers, {len(hits)} on "
-                f"{focus['label']} ({n_first} first-author)")
+                f"{focus['label']} ({n_first} first-author)"
+                + (f" -- ignored {dropped[0]} by someone with the same "
+                   f"surname" if dropped[0] else ""))
             fetched[name] = articles
             queries[name] = build_query(person["author"],
                                         person["affiliation"], start_year)

@@ -419,6 +419,12 @@ def to_author_form(full_name):
         tokens = tokens[:-1]
     if len(tokens) == 1:
         return tokens[0]
+    # Keep every initial, not just the first. PubMed's own search treats
+    # "Capo J" as matching Capo JT, JA and JM alike, so the middle initial
+    # is the only thing separating three real people at one hospital. It is
+    # recorded here and used to filter results later; the search itself
+    # still goes out on the first initial alone, because plenty of papers
+    # are indexed without a middle one.
     # Multi-word surnames: pull particles in ("Al Kazzi", "van der Woude").
     particles = {"al", "el", "de", "del", "della", "di", "da", "van", "von",
                  "der", "den", "ter", "la", "le", "bin", "ibn", "abu", "st"}
@@ -426,8 +432,8 @@ def to_author_form(full_name):
     while start > 1 and tokens[start - 1].lower().strip(".") in particles:
         start -= 1
     surname = " ".join(tokens[start:])
-    first_initial = tokens[0][0].upper()
-    return f"{surname} {first_initial}"
+    initials = "".join(t[0].upper() for t in tokens[:start] if t[0].isalpha())
+    return f"{surname} {initials}" if initials else surname
 
 
 def build_roster(urls, api_key, affiliation_override="", log=print):
