@@ -233,12 +233,16 @@ def load_env(path=None):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if not os.path.exists(path):
         return
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                os.environ.setdefault(key.strip(), value.strip())
+    try:
+        with open(path) as fh:
+            content = fh.read()
+    except OSError:
+        return                          # unreadable settings are not fatal
+    for line in content.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
 
 
 def get_api_key(explicit=None):
@@ -661,6 +665,14 @@ def looks_like_person_name(name):
     return True
 
 
+# Invisible characters that a page can put in a name: direction overrides
+# that visually reverse text, zero-width joiners, and raw control codes.
+# They survive HTML escaping and would reach the CSV and the query.
+_INVISIBLE = re.compile(
+    "[\u0000-\u001f\u007f\u00ad\u200b-\u200f\u202a-\u202e"
+    "\u2060-\u2064\u2066-\u2069\ufeff]")
+
+
 def _as_text(value, limit=300):
     """Coerce whatever the extractor returned into a plain short string.
 
@@ -671,7 +683,7 @@ def _as_text(value, limit=300):
     if value is None or isinstance(value, bool):
         return ""
     if isinstance(value, (str, int, float)):
-        return str(value)[:limit]
+        return _INVISIBLE.sub("", str(value))[:limit]
     if isinstance(value, (list, tuple)):
         return " ".join(_as_text(v, limit) for v in value[:5])[:limit]
     if isinstance(value, dict):

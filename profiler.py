@@ -215,6 +215,36 @@ def search_name(author):
     return f"{' '.join(parts[:-1])} {parts[-1][0]}"
 
 
+class RateLimited(Exception):
+    """PubMed asked us to slow down and kept asking."""
+
+
+def _with_backoff(call, what, pause):
+    """Retry a PubMed call through a rate limit or a server wobble.
+
+    Without this a 429 fails one researcher, then the next, then all 150 --
+    a hundred and fifty pointless requests that dig the rate limit deeper
+    while the user watches an empty report assemble.
+    """
+    delay = max(pause, 1.0)
+    for attempt in range(3):
+        try:
+            return call()
+        except HTTPError as exc:
+            if exc.code == 403:
+                die_on_403(exc, what)
+            if exc.code not in (429, 500, 502, 503, 504) or attempt == 2:
+                if exc.code == 429:
+                    raise RateLimited(
+                        "PubMed is limiting how fast we may search. Wait a "
+                        "few minutes and try again, or add a free NCBI API "
+                        "key to search three times faster.") from exc
+                raise
+            time.sleep(delay)
+            delay *= 3
+    raise RateLimited("PubMed did not respond after several attempts.")
+
+
 def _clean_term(value, limit=80):
     """Strip anything that would change the shape of a PubMed query.
 
@@ -262,14 +292,16 @@ def find_paper_ids(author, affiliation, start_year, max_papers, pause):
     Langone", "NYU", and "New York University" -- so any of them counts.
     """
     query = build_query(author, affiliation, start_year)
-    try:
+    if not query:
+        return []
+
+    def search():
         handle = Entrez.esearch(db="pubmed", term=query, retmax=max_papers)
         result = Entrez.read(handle)
         handle.close()
-    except HTTPError as exc:
-        if exc.code == 403:
-            die_on_403(exc, f"esearch for query: {query}")
-        raise
+        return result
+
+    result = _with_backoff(search, f"esearch for query: {query}", pause)
     time.sleep(pause)
     return result["IdList"]
 
@@ -371,14 +403,15 @@ def fetch_articles(pmids, surname, initials, focus, focus_patterns, pause,
 
     for i in range(0, len(pmids), 200):
         chunk = ",".join(pmids[i:i + 200])
-        try:
+
+        def fetch(chunk=chunk):
             handle = Entrez.efetch(db="pubmed", id=chunk, retmode="xml")
             records = Entrez.read(handle)
             handle.close()
-        except HTTPError as exc:
-            if exc.code == 403:
-                die_on_403(exc, f"efetch for {len(pmids[i:i+200])} PMIDs")
-            raise
+            return records
+
+        records = _with_backoff(
+            fetch, f"efetch for {len(pmids[i:i+200])} PMIDs", pause)
         time.sleep(pause)
 
         for entry in records.get("PubmedArticle", []):
@@ -518,7 +551,9 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
             fetched[name] = articles
             queries[name] = build_query(person["author"],
                                         person["affiliation"], start_year)
-        except SystemExit:
+        except (SystemExit, RateLimited):
+            # Being rate-limited will not fix itself over the next 150
+            # requests; stop rather than fail everyone one at a time.
             raise
         except Exception as exc:
             log(f"    ERROR: {exc}")
@@ -691,11 +726,24 @@ def _defuse_formula(value):
 
 
 def _write_csv(rows, label, out_dir):
-    os.makedirs(out_dir, exist_ok=True)
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except OSError as exc:
+        raise SystemExit(
+            f"Could not create the output folder {out_dir}: {exc}. "
+            "The results are shown on screen but could not be saved.")
     name = slugify(label)[:80] or "results"
-    out_csv = os.path.join(out_dir, f"{name}_topics_by_researcher.csv")
+    # Stamp the file: a fixed name per condition meant a second search of
+    # the same specialty silently destroyed the first one's results.
+    stamp = time.strftime("%Y-%m-%d_%H%M%S")
+    out_csv = os.path.join(out_dir, f"{name}_{stamp}.csv")
     safe = [{k: _defuse_formula(v) for k, v in row.items()} for row in rows]
-    pd.DataFrame(safe).to_csv(out_csv, index=False)
+    try:
+        pd.DataFrame(safe).to_csv(out_csv, index=False)
+    except OSError as exc:
+        raise SystemExit(
+            f"Could not save the results file: {exc}. Check that there is "
+            "space on the disk and that the output folder is writable.")
     return out_csv
 
 
