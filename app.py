@@ -128,7 +128,7 @@ PAGE = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Med Research Finder</title>
+<title>Which doctor is most published?</title>
 <style>
   html {{ background: #ffffff; }}
   body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 820px;
@@ -208,24 +208,22 @@ PAGE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1>Med Research Finder</h1>
-<p class="sub">What each doctor actually publishes on, from PubMed.</p>
+<h1>Which doctor is most widely published on your specific problem?</h1>
 
 <div class="intro">
-  <p><b>What this does.</b> Paste the web addresses of hospital
-  &ldquo;find a doctor&rdquo; pages. This tool reads every doctor listed on
-  them, looks each one up in PubMed (the national database of medical
-  research), and shows you the specific subjects each of them publishes
-  on &mdash; particular drugs, procedures, and clinical problems.</p>
+  <p><b>What does this tool do?</b> When you paste the web addresses of
+  hospital &ldquo;find a doctor&rdquo; pages, this tool reads every doctor
+  listed on them, looks each one up in PubMed (the national database of
+  medical research), and shows you the specific subjects each of them
+  publishes on (specific drugs, procedures, and clinical problems).</p>
   <p>It works out on its own which condition the directory covers, so
-  there is nothing to choose or configure. A search takes roughly half a
-  minute per doctor, so a directory page of twenty runs about ten
-  minutes.</p>
-  <p>The results appear below as <b>Most prominent researchers</b>. A
-  complete spreadsheet &mdash; every doctor, every subject, with exact
-  paper counts &mdash; is also saved to the <code>output</code> folder
-  next to this program, and the full path is printed at the bottom of the
-  page when the search finishes.</p>
+  there is nothing to choose or configure. A search takes a little while,
+  so you may see a message advising you to wait.</p>
+  <p>The results appear below as &ldquo;<b>Most prominent
+  researchers</b>.&rdquo; A complete spreadsheet (every doctor, every
+  subject, with exact paper counts) is also saved to the
+  <code>output</code> folder next to this program, and the full path is
+  printed at the bottom of the page when the search finishes.</p>
 </div>
 
 <div class="scope">
@@ -283,10 +281,21 @@ hospital or medical school page listing doctors by name.</span></div>
 <div class="legend">
   <h3>How to read the results</h3>
   <p>Each doctor is listed with the subjects they publish on, <b>most
-  distinctive first</b>. The order is not simply who publishes most: a
-  subject that nearly everyone in the group writes about tells you little,
-  so subjects that set a doctor apart from their colleagues rise to the
-  top.</p>
+  distinctive first</b>.</p>
+  <p><b>What &ldquo;most distinctive&rdquo; means.</b> The list is not
+  simply ordered by who publishes most. A subject that nearly everyone in
+  the group writes about cannot tell you who to see, so it is pushed down;
+  a subject that sets one doctor apart from their colleagues is pushed
+  up.</p>
+  <p>Say you search an epilepsy centre. Every doctor there publishes on
+  seizures and on brain scans, so those subjects say nothing about any one
+  of them. But if one doctor has written nine papers on a particular
+  drug and nobody else has written any, that rises to the top of their
+  list &mdash; because it is the thing that makes them different from the
+  colleague in the next office.</p>
+  <p>So a subject near the top means <i>this doctor in particular</i>
+  works on it, not merely that they have published a lot. Both matter, and
+  the paper count beside each name tells you the volume.</p>
   <p><b>Asterisks mark first-authored papers.</b> One asterisk per paper
   on that subject where the doctor was the <i>first</i> author:</p>
   <ul>
@@ -401,7 +410,7 @@ async function poll() {{
       '</ul>' + detail + '</div>';
     document.getElementById('run').disabled = false;
     forgetRun();
-    document.title = 'Med Research Finder';
+    document.title = 'Which doctor is most published?';
     if (!ANNOUNCED) {{
       ANNOUNCED = true;
       // Deferred: scrolling in the same tick as the DOM updates gets the
@@ -474,7 +483,7 @@ async function poll() {{
     // Completion has to announce itself: the results render below the
     // fold, and a new user has no reason to know to scroll. The tab
     // title covers anyone who switched away during the wait.
-    document.title = '✓ Finished — Med Research Finder';
+    document.title = '✓ Finished — Which doctor is most published?';
     if (!ANNOUNCED) {{
       ANNOUNCED = true;
       // Deferred: scrolling in the same tick as the DOM updates gets the
@@ -490,7 +499,7 @@ async function poll() {{
     }}
     return;
   }}
-  document.title = 'Searching… — Med Research Finder';
+  document.title = 'Searching… — Which doctor is most published?';
   setTimeout(poll, 1500);
 }}
 </script>
