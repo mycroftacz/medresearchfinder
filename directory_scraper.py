@@ -38,6 +38,7 @@ FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape"
 MAX_URLS = 10
 MAX_DOCTORS = 150
 
+
 # Sites that are certainly not clinician directories. This is not a
 # security boundary -- it is a courtesy, so an obvious mistake fails
 # instantly instead of spending a scrape to discover YouTube has no
@@ -75,12 +76,14 @@ EXTRACT_SCHEMA = {
         },
         "is_clinician_directory": {
             "type": "boolean",
-            "description": "True only if this page lists named individual "
-                           "doctors or clinicians, as a hospital or medical "
-                           "school directory does. False for news articles, "
-                           "product pages, social media, patient "
-                           "information, or any page that names no "
-                           "clinicians.",
+            "description": "True only if the PURPOSE of this page is to "
+                           "list clinicians to choose from, as a "
+                           "'find a doctor' directory or a department's "
+                           "team page does. False for a hospital home page, "
+                           "a news article, a patient-information page, or "
+                           "a single doctor's own profile page -- even when "
+                           "such a page happens to name one or two doctors "
+                           "in passing.",
         },
         "clinical_focus": {
             "type": "string",
@@ -270,17 +273,17 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
                 institution += f"|{alias}"
     physicians = extract.get("physicians") or []
     clinical_focus = (extract.get("clinical_focus") or "").strip()
-    # A page can be on a hospital domain and still not be a directory.
-    # Trust the reading of the page over the shape of the URL, but only to
-    # reject: a page that named doctors is a directory whatever it says.
-    if extract.get("is_clinician_directory") is False and not physicians:
-        log("    this page does not list individual doctors")
-        return institution, [], clinical_focus
+    # A page can sit on a hospital domain, name a doctor or two, and still
+    # not be a directory -- a hospital home page usually features one.
+    # Believe the page's own purpose over the presence of a stray name.
+    if extract.get("is_clinician_directory") is False:
+        log("    this page is not a doctor directory")
+        return institution, [], clinical_focus, "not_a_directory"
     log(f"    {len(physicians)} providers found"
         + (f" ({institution.split('|')[0]}"
            f"{', ' + clinical_focus if clinical_focus else ''})"
            if institution else ""))
-    return institution, physicians, clinical_focus
+    return institution, physicians, clinical_focus, ""
 
 
 def to_author_form(full_name):
@@ -325,18 +328,25 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
     """Scrape every page URL and return de-duplicated CSV rows."""
     rows, seen = [], set()
     focus_votes = Counter()
+    rejected = []
     for url in urls:
         log(f"Scraping {url} ...")
-        institution, physicians, clinical_focus = scrape_page(
+        institution, physicians, clinical_focus, verdict = scrape_page(
             url, api_key, log=log)
-        if not physicians:
+
+        if verdict != "not_a_directory" and not physicians:
             # Slow directory: give the page a lot longer before giving up.
             log("    nothing found -- retrying with a longer page wait ...")
-            institution, physicians, clinical_focus = scrape_page(
+            institution, physicians, clinical_focus, verdict = scrape_page(
                 url, api_key, log=log, wait_ms=20000)
+
+        if verdict:
+            rejected.append((url, verdict))
+            continue
         if not physicians:
             log(f"    WARNING: no providers on this page. If the directory "
                 f"needs a search click, link straight to a results page.")
+            rejected.append((url, "no_doctors"))
         if clinical_focus:
             focus_votes[clinical_focus.lower()] += len(physicians) or 1
         affiliation = affiliation_override or institution or ""
@@ -379,7 +389,7 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
         rows = rows[:MAX_DOCTORS]
 
     detected = focus_votes.most_common(1)[0][0] if focus_votes else ""
-    return rows, detected
+    return rows, detected, rejected
 
 
 def write_roster(rows, out_path):
@@ -409,6 +419,36 @@ def split_urls(raw):
         if part:
             cleaned.append(part)
     return cleaned
+
+
+# Subdomains that host a directory at their root, so a bare address there
+# is legitimate: doctors.example.org, findadoc.example.org.
+DIRECTORY_SUBDOMAINS = ("doctor", "doctors", "physician", "physicians",
+                        "provider", "providers", "find", "findadoc",
+                        "finddoctor", "faculty", "team", "ourdoctors")
+
+
+def is_site_root(url):
+    """Is this the front door of a site rather than a page within it?
+
+    Judged before any scraping, because asking the page is unreliable: a
+    hospital home page reads as a doctor directory to a language model,
+    since it features doctors. The URL is the honest signal -- a directory
+    practically always lives at a path, not at the bare domain.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return False
+    if parsed.path.strip("/") or parsed.query:
+        return False
+    host = parsed.netloc.split("@")[-1].split(":")[0].lower()
+    label = host.split(".")[0]
+    if label == "www":
+        label = host.split(".")[1] if host.count(".") > 1 else ""
+    # A site whose whole purpose is listing doctors may legitimately do it
+    # at its root.
+    return label not in DIRECTORY_SUBDOMAINS
 
 
 def validate_urls(raw):
@@ -479,6 +519,14 @@ def validate_urls(raw):
             continue
 
         normalized = candidate.rstrip("/")
+
+        if is_site_root(normalized):
+            problems.append(
+                f"{bare} is the hospital's home page, not a list of "
+                f"doctors. Open their \"Find a Doctor\" or \"Our Team\" "
+                f"page and paste the address of that page instead.")
+            continue
+
         if normalized.lower() in seen:
             continue                       # same page twice: quietly ignore
         seen.add(normalized.lower())
@@ -533,9 +581,11 @@ def main(argv=None):
     if not urls:
         raise SystemExit("No URLs given.")
 
-    rows, detected = build_roster(urls, api_key, args.affiliation)
+    rows, detected, rejected = build_roster(urls, api_key, args.affiliation)
     if detected:
         print(f"\nDetected condition: {detected}")
+    for url, verdict in rejected:
+        print(f"Skipped {url}: {verdict.replace('_', ' ')}")
     if not rows:
         raise SystemExit(
             "No providers extracted from any page. If the pages render "

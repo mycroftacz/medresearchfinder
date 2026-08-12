@@ -403,6 +403,37 @@ def friendly_error(exc):
     return ("Something went wrong while searching. " + TRY_AGAIN, detail)
 
 
+FIND_THE_DIRECTORY = ("On the hospital's website, look for a link named "
+                      "\"Find a Doctor\", \"Our Doctors\", \"Our Team\" or "
+                      "\"Physicians\". Open it, then copy the address of "
+                      "that page from your browser's address bar.")
+
+
+def explain_rejections(rejected):
+    """Say why nothing was searched, in terms of what to do next."""
+    if not rejected:
+        return ["No doctors were found on those pages. " + TRY_AGAIN]
+
+    reasons = {verdict for _, verdict in rejected}
+    problems = []
+
+    if "home_page" in reasons:
+        problems.append(
+            "That is the hospital's home page, not a list of doctors. "
+            + FIND_THE_DIRECTORY)
+    if "not_a_directory" in reasons:
+        problems.append(
+            "That page does not list doctors to choose from — it may be an "
+            "article, a patient-information page, or a single doctor's "
+            "profile. " + FIND_THE_DIRECTORY)
+    if "no_doctors" in reasons:
+        problems.append(
+            "No doctors could be read from that page. If it does list them, "
+            "the list may only appear after you run a search — do the "
+            "search yourself, then paste the address of the results page.")
+    return problems
+
+
 def pipeline(run_id, urls, email):
     log = make_logger(run_id)
     try:
@@ -414,15 +445,15 @@ def pipeline(run_id, urls, email):
         api_key = directory_scraper.get_api_key()
         set_field(run_id, note=f"Reading {len(urls)} directory page(s)...")
         log(f"Reading {len(urls)} directory page(s) ...")
-        rows, detected = directory_scraper.build_roster(
+        rows, detected, rejected = directory_scraper.build_roster(
             urls, api_key, log=log)
         if not rows:
-            set_field(run_id, problems=[
-                "No doctors were found on those pages. " + TRY_AGAIN,
-                "If the page does list doctors, it may hide them behind a "
-                "search button — open the directory, run the search "
-                "yourself, and paste the address of the results page."])
+            set_field(run_id, problems=explain_rejections(rejected))
             return
+        if rejected:
+            # Some pages worked. Say which did not, but carry on with the
+            # rest rather than throwing away a good search.
+            log("Skipped: " + ", ".join(url for url, _ in rejected))
 
         out_dir = os.path.join(HERE, "output")
         os.makedirs(out_dir, exist_ok=True)
