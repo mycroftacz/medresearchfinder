@@ -130,10 +130,26 @@ PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <title>Which doctor is most published?</title>
 <style>
-  html {{ background: #ffffff; }}
+  html {{
+    background-color: #eaf4fc;
+    /* A wash of very small Y shapes that thins out down the page: the
+       fading white layer on top is what turns the texture into a
+       gradient, so the gradient is made of the Ys themselves. */
+    background-image:
+      linear-gradient(180deg,
+        rgba(255,255,255,0.00) 0%,
+        rgba(255,255,255,0.55) 42%,
+        rgba(255,255,255,0.92) 78%,
+        rgba(255,255,255,1.00) 100%),
+      url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2728%27%20height%3D%2728%27%20viewBox%3D%270%200%2028%2028%27%3E%3Cg%20fill%3D%27none%27%20stroke%3D%27%237fb2dc%27%20stroke-width%3D%271.05%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%205%20L7%208.4%20L10%205%20M7%208.4%20L7%2012%27%2F%3E%3Cpath%20d%3D%27M18%2019%20L21%2022.4%20L24%2019%20M21%2022.4%20L21%2026%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E"),
+      linear-gradient(180deg, #d5e9f8 0%, #e9f4fc 55%, #f7fbfe 100%);
+    background-repeat: no-repeat, repeat, no-repeat;
+    background-size: cover, 28px 28px, cover;
+    background-attachment: fixed, fixed, fixed;
+  }}
   body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 820px;
          margin: 2rem auto; padding: 0 1rem; line-height: 1.45;
-         color: #1a1a1a; background: #ffffff; }}
+         color: #1a1a1a; background: transparent; }}
   h1 {{ font-size: 1.55rem; color: #1a1a1a; margin-bottom: .2rem; }}
   .sub {{ color: #555; margin-top: 0; }}
   h2 {{ font-size: 1.05rem; margin: 1.5rem 0 .3rem; color: #1a1a1a; }}
