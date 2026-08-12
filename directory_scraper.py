@@ -290,6 +290,11 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
         # page never loaded" from "the page was too big to read".
         "formats": ["extract", "markdown"],
         "waitFor": wait_ms,
+        # Firecrawl rejects a waitFor above half the timeout, so the
+        # timeout has to grow with it. Leaving it at the default made the
+        # long retry fail with HTTP 400 -- meaning every page that needed
+        # a second, slower attempt died instead of getting one.
+        "timeout": wait_ms * 2 + 20000,
         "onlyMainContent": True,
         "blockAds": True,
         "extract": {"prompt": EXTRACT_PROMPT, "schema": EXTRACT_SCHEMA},
@@ -346,6 +351,16 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
     clinical_focus = (extract.get("clinical_focus") or "").strip()
     organization = (extract.get("organization_type") or "").strip()
     profession = (extract.get("people_profession") or "").strip()
+
+    # Drop anything that is plainly a department rather than a person. A
+    # page that is mostly departments is a directory's front counter --
+    # useful to a human, useless to look up in PubMed.
+    named_people = [p for p in physicians
+                    if looks_like_person_name(p.get("name"))]
+    if physicians and len(named_people) < len(physicians) / 2:
+        log(f"    this page lists specialties or departments, not doctors")
+        return institution, [], clinical_focus, "department_list", ""
+    physicians = named_people
 
     # A huge page that yielded nothing was not empty -- it overwhelmed the
     # reader. Booking marketplaces do this: hundreds of thousands of
@@ -422,15 +437,28 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
     rejected = []
     for url in urls:
         log(f"Scraping {url} ...")
-        institution, physicians, clinical_focus, verdict, what = scrape_page(
-            url, api_key, log=log)
-
-        if not verdict and not physicians:
-            # Slow directory: give the page a lot longer before giving up.
-            log("    nothing found -- retrying with a longer page wait ...")
+        # One unreadable page must not destroy a search over ten of them.
+        try:
             (institution, physicians, clinical_focus,
-             verdict, what) = scrape_page(url, api_key, log=log,
-                                          wait_ms=20000)
+             verdict, what) = scrape_page(url, api_key, log=log)
+
+            if not verdict and not physicians:
+                # Slow directory: give it longer before giving up.
+                log("    nothing found -- retrying with a longer page wait ...")
+                (institution, physicians, clinical_focus,
+                 verdict, what) = scrape_page(url, api_key, log=log,
+                                              wait_ms=20000)
+        except FriendlyError as exc:
+            log(f"    {exc.message}")
+            rejected.append((url, "blocked", exc.message))
+            continue
+        except Exception as exc:
+            timed_out = "timeout" in str(exc).lower() or "408" in str(exc)
+            log("    page took too long to load" if timed_out
+                else f"    could not read this page: {exc}")
+            rejected.append((url, "timeout" if timed_out else "unreadable",
+                             ""))
+            continue
 
         if verdict:
             rejected.append((url, verdict, what))
@@ -518,6 +546,50 @@ def split_urls(raw):
 DIRECTORY_SUBDOMAINS = ("doctor", "doctors", "physician", "physicians",
                         "provider", "providers", "find", "findadoc",
                         "finddoctor", "faculty", "team", "ourdoctors")
+
+
+# Words that appear in the name of a department, service or specialty and
+# never in a person's name.
+NOT_A_PERSON_WORDS = {
+    "center", "centre", "department", "institute", "program", "programs",
+    "service", "services", "care", "clinic", "clinics", "hospital",
+    "medicine", "medical", "health", "healthcare", "surgery", "surgical",
+    "associates", "group", "practice", "partners", "division", "unit",
+    "specialties", "specialty", "team", "faculty", "staff", "providers",
+    "physicians", "doctors", "and", "amp", "the", "for", "our",
+}
+
+# Specialty endings: dermatology, psychiatry, pediatrics, radiotherapy.
+SPECIALTY_SUFFIXES = ("ology", "ologies", "iatry", "iatrics", "iatric",
+                      "surgery", "therapy", "ncology", "opedics", "opaedics")
+
+
+def looks_like_person_name(name):
+    """Is this a human being's name, or a department's?
+
+    Directory landing pages list specialties rather than people, and the
+    extractor happily reports 'Pediatric Cardiology' as a physician. Names
+    are checked here instead, where the answer does not vary between runs.
+    """
+    cleaned = (name or "").strip()
+    if not cleaned or len(cleaned) > 60:
+        return False
+    if "&" in cleaned or "/" in cleaned:
+        return False                       # "Ear, Nose & Throat"
+
+    tokens = [t for t in re.split(r"[\s,]+", cleaned.lower())
+              if t.strip(".")]
+    tokens = [t for t in tokens if t.strip(".") not in CREDENTIAL_TOKENS]
+    if len(tokens) < 2:
+        return False                       # "Cardiology"
+
+    for token in tokens:
+        bare = token.strip(".-")
+        if bare in NOT_A_PERSON_WORDS or bare in CLINICAL_MARKERS:
+            return False
+        if bare.endswith(SPECIALTY_SUFFIXES):
+            return False
+    return True
 
 
 def _words(text):

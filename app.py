@@ -145,6 +145,10 @@ PAGE = """<!DOCTYPE html>
   .intro {{ border-left: 3px solid #d4d4d8; padding-left: .9rem;
             margin: 1rem 0 1.6rem; }}
   .intro p {{ margin: .5rem 0; }}
+  .scope {{ background: #f0f7ff; border: 1px solid #b9d5f2;
+            border-radius: 8px; padding: .9rem 1.1rem; margin: 0 0 1.6rem; }}
+  .scope h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
+  .scope p {{ margin: .5rem 0; font-size: .93rem; }}
   .legend {{ background: #fafafa; border: 1px solid #e5e5e5;
              border-radius: 8px; padding: .9rem 1.1rem; margin-top: 1.6rem; }}
   .legend h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
@@ -174,6 +178,30 @@ PAGE = """<!DOCTYPE html>
   paper counts &mdash; is also saved to the <code>output</code> folder
   next to this program, and the full path is printed at the bottom of the
   page when the search finishes.</p>
+</div>
+
+<div class="scope">
+  <h3>What to paste, and what not to</h3>
+  <p><b>Best results:</b> a page from a <b>research hospital or medical
+  school</b> that lists doctors by name &mdash; a department's team page,
+  or a condition centre's list of specialists. These are the places where
+  doctors both treat patients and publish research, which is what this
+  tool measures.</p>
+  <p><b>Won't work &mdash; booking sites.</b> Zocdoc, Healthgrades, Vitals
+  and similar services are not supported yet. Their pages are built for
+  booking appointments and are too large and complex for this tool to
+  read, and their listings identify a practice rather than a hospital,
+  which is what makes a research search possible.</p>
+  <p><b>Works, but expect little &mdash; small local practices.</b> You can
+  paste a private practice's page and it will run. Most community doctors
+  do not publish research at all, so the usual result is
+  &ldquo;too little published research to profile&rdquo;. That is a real
+  answer, not a fault &mdash; but it is not what this tool is designed to
+  find, and an excellent local doctor will look identical to a poor one
+  here.</p>
+  <p><b>Won't work &mdash; a hospital's front page or its list of
+  departments.</b> Those name specialties, not people. Click through to
+  the specialty you care about first, then paste that page.</p>
 </div>
 
 <h2>Step 1 &mdash; Directory pages</h2>
@@ -458,6 +486,11 @@ def explain_rejections(rejected):
             "That page does not list doctors to choose from — it may be an "
             "article, a patient-information page, or a single doctor's "
             "profile. " + FIND_THE_DIRECTORY)
+    if "department_list" in reasons:
+        problems.append(
+            "That page lists departments and specialties, not individual "
+            "doctors. Choose the specialty you care about, and paste the "
+            "address of the page that then lists its doctors by name.")
     if "too_complex" in reasons:
         problems.append(
             "That page is too big and complicated for this tool to read — "
@@ -468,6 +501,19 @@ def explain_rejections(rejected):
             "directory, where doctors are listed with the institution they "
             "belong to. That institution is what lets it find their "
             "research; a booking listing does not carry one.")
+    if "timeout" in reasons:
+        problems.append(
+            "That page took too long to load and could not be read. Very "
+            "large directory pages often do. Try a page that lists one "
+            "specialty rather than the whole hospital, or try again in a "
+            "few minutes.")
+    if "blocked" in reasons:
+        blocked = next((w for _, v, w in rejected if v == "blocked" and w), "")
+        problems.append(blocked or
+                        "That hospital's website would not let this tool "
+                        "read the page.")
+    if "unreadable" in reasons:
+        problems.append("That page could not be read. " + TRY_AGAIN)
     if "no_doctors" in reasons:
         problems.append(
             "No doctors could be read from that page. If it does list them, "
