@@ -1,0 +1,68 @@
+{
+  "_comment": "Example config: ulcerative colitis. Copy this file and edit every section for your own condition. 'focus.mesh_terms' must be exact MeSH headings (find them at https://meshb.nlm.nih.gov). 'tracked_terms' maps a display label to the spellings matched (case-insensitive, whole-word) in titles and abstracts -- this list is the main lever over what the report can see, because MeSH has no headings for new drugs or clinical phrases like 'refractory'.",
+
+  "focus": {
+    "label": "Ulcerative colitis",
+    "mesh_terms": ["Colitis, Ulcerative"],
+    "text_terms": ["ulcerative colitis"]
+  },
+
+  "start_year": 2018,
+  "max_papers": 500,
+  "min_focus_papers": 10,
+  "topics_per_researcher": 12,
+  "min_papers_per_topic": 2,
+  "max_stars": 5,
+
+  "extra_boring_mesh": [
+    "Inflammatory Bowel Diseases",
+    "Crohn Disease",
+    "Colitis",
+    "Gastrointestinal Agents",
+    "Biological Products",
+    "Biomarkers",
+    "Registries",
+    "Oxadiazoles",
+    "Indans",
+    "Sweden"
+  ],
+
+  "tracked_terms": {
+    "Mesalamine / 5-ASA": ["mesalamine", "mesalazine", "5-asa", "aminosalicylate", "aminosalicylates", "sulfasalazine", "balsalazide"],
+    "Etrasimod (Velsipity)": ["etrasimod", "velsipity"],
+    "Ozanimod (Zeposia)": ["ozanimod", "zeposia"],
+    "S1P modulators (class)": ["s1p receptor", "sphingosine-1-phosphate", "sphingosine 1-phosphate"],
+    "Tofacitinib (Xeljanz)": ["tofacitinib", "xeljanz"],
+    "Upadacitinib (Rinvoq)": ["upadacitinib", "rinvoq"],
+    "JAK inhibitors (class)": ["jak inhibitor", "jak inhibitors", "janus kinase"],
+    "Infliximab": ["infliximab", "remicade"],
+    "Adalimumab": ["adalimumab", "humira"],
+    "Anti-TNF (class)": ["anti-tnf", "tnf inhibitor", "tnf inhibitors", "tumor necrosis factor inhibitor"],
+    "Vedolizumab (Entyvio)": ["vedolizumab", "entyvio"],
+    "Ustekinumab (Stelara)": ["ustekinumab", "stelara"],
+    "Mirikizumab (Omvoh)": ["mirikizumab", "omvoh"],
+    "Risankizumab (Skyrizi)": ["risankizumab", "skyrizi"],
+    "Guselkumab (Tremfya)": ["guselkumab", "tremfya"],
+    "Corticosteroids": ["corticosteroid", "corticosteroids", "prednisone", "budesonide", "steroid-dependent", "steroid dependent"],
+    "Thiopurines": ["azathioprine", "mercaptopurine", "thiopurine", "thiopurines"],
+    "Refractory / failed therapy": ["refractory", "treatment-refractory", "nonresponse", "non-response", "primary nonresponse", "loss of response", "treatment failure"],
+    "Sequencing / switching": ["treatment sequencing", "positioning", "switching", "second-line", "third-line", "drug sequencing", "cycling"],
+    "Combination therapy": ["combination therapy", "dual biologic", "dual targeted", "combination biologic"],
+    "Dose escalation / TDM": ["dose escalation", "dose optimization", "therapeutic drug monitoring", "drug levels", "trough level", "trough concentration"],
+    "Treat-to-target": ["treat-to-target", "treat to target", "stride"],
+    "Mucosal / histologic healing": ["mucosal healing", "endoscopic remission", "histologic remission", "histologic healing", "deep remission"],
+    "Left-sided / distal disease": ["left-sided", "left sided", "distal colitis", "proctitis", "proctosigmoiditis"],
+    "Acute severe UC": ["acute severe ulcerative colitis", "asuc", "fulminant colitis", "hospitalized"],
+    "Biomarkers / prediction": ["biomarker", "biomarkers", "calprotectin", "predictive model", "precision medicine", "personalized medicine"],
+    "Colectomy / surgery": ["colectomy", "proctocolectomy", "ileal pouch", "j-pouch", "ipaa", "surgical"],
+    "Pouchitis": ["pouchitis", "pouch"],
+    "Dysplasia / cancer surveil.": ["dysplasia", "colorectal cancer", "surveillance", "chromoendoscopy", "neoplasia"],
+    "Intestinal ultrasound": ["intestinal ultrasound", "bowel ultrasound", "point-of-care ultrasound"],
+    "Microbiome / FMT": ["microbiome", "microbiota", "fecal microbiota", "dysbiosis", "fmt"],
+    "Diet / nutrition": ["diet", "dietary", "nutrition", "nutritional"],
+    "Pregnancy / reproductive": ["pregnancy", "pregnant", "conception", "reproductive", "fertility"],
+    "Quality of life / fatigue": ["quality of life", "fatigue", "depression", "anxiety", "psychosocial"],
+    "Real-world / registry data": ["real-world", "real world", "registry", "claims data", "population-based"],
+    "Clinical trial (RCT)": ["randomized", "randomised", "placebo-controlled", "phase 3", "phase iii", "phase 2", "phase ii"]
+  }
+}
