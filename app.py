@@ -18,6 +18,7 @@ import html
 import json
 import os
 import threading
+import urllib.error
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
@@ -34,6 +35,7 @@ ENV_PATH = os.path.join(HERE, ".env")
 RUNS = {}
 LOCK = threading.Lock()
 _RUN_SEQ = 0
+MAX_ACTIVE_RUNS = 1
 
 
 def new_run():
@@ -43,7 +45,7 @@ def new_run():
         run_id = f"run{_RUN_SEQ}"
         RUNS[run_id] = {"lines": [], "done": False, "results": [],
                         "note": "", "doctors": [], "csv": "",
-                        "condition": ""}
+                        "condition": "", "problems": [], "detail": ""}
         # Keep the history short; these hold every paper's worth of log.
         for stale in list(RUNS)[:-5]:
             RUNS.pop(stale, None)
@@ -114,6 +116,17 @@ PAGE = """<!DOCTYPE html>
                                padding-bottom: .25rem; }}
   #searched {{ margin-top: 2rem; }}
   .plain {{ font-size: .93rem; color: #333; line-height: 1.7; }}
+  .limit {{ color: #6b5b1f; font-size: .88rem; }}
+  .problem {{ background: #fef2f2; border: 1px solid #fecaca;
+              border-radius: 6px; padding: .7rem .9rem; margin: 1.2rem 0 0;
+              font-size: .93rem; color: #7f1d1d; }}
+  .problem ul {{ margin: .4rem 0 0; padding-left: 1.2rem; }}
+  .problem li {{ margin: .2rem 0; }}
+  .problem details {{ margin-top: .6rem; }}
+  .problem summary {{ cursor: pointer; color: #9a3412; font-size: .85rem; }}
+  .problem pre {{ white-space: pre-wrap; font-size: .78rem; color: #555;
+                  background: #fff; border-radius: 4px; padding: .5rem;
+                  margin-top: .4rem; max-height: 12rem; overflow-y: auto; }}
   .doc {{ margin-bottom: 1.4rem; padding-bottom: 1rem;
           border-bottom: 1px solid #eee; }}
   .doc h3 {{ margin: 0 0 .1rem; font-size: 1.08rem; }}
@@ -164,7 +177,9 @@ PAGE = """<!DOCTYPE html>
 separated by semicolons ( <b>;</b> ).</p>
 <div class="reminder"><b>Reminder:</b> you may need to provide a separate
 link for every <i>page</i> of a directory. If there are two pages of
-pulmonologists, provide a URL for each page.</div>
+pulmonologists, provide a URL for each page.<br>
+<span class="limit">Up to {max_urls} pages per search. Each link must be a
+hospital or medical school page listing doctors by name.</span></div>
 <textarea id="urls" placeholder="https://hospital.org/find-a-doctor/pulmonology; https://hospital.org/find-a-doctor/pulmonology?page=2"></textarea>
 
 <div id="emailbox" style="{email_display}">
@@ -271,6 +286,22 @@ async function poll() {{
   const r = await fetch('/log?run=' + encodeURIComponent(RUN_ID));
   const data = await r.json();
 
+  if (data.problems && data.problems.length) {{
+    const items = data.problems.map(function (p) {{
+      return '<li>' + esc(p) + '</li>'; }}).join('');
+    // Diagnostics stay folded away: useful for a bug report, unhelpful
+    // as the first thing someone reads when a search fails.
+    const detail = data.detail
+      ? '<details><summary>Technical details</summary><pre>' +
+        esc(data.detail) + '</pre></details>' : '';
+    document.getElementById('note').innerHTML =
+      '<div class="problem"><b>That didn\\'t work.</b><ul>' + items +
+      '</ul>' + detail + '</div>';
+    document.getElementById('run').disabled = false;
+    forgetRun();
+    return;
+  }}
+
   if (!data.done) {{
     document.getElementById('note').innerHTML =
       '<p class="note">' + esc(data.note ||
@@ -322,10 +353,57 @@ def render_page():
     return PAGE.format(
         email=html.escape(email),
         email_display="display:none" if email else "",
+        max_urls=directory_scraper.MAX_URLS,
     )
 
 
-def pipeline(run_id, raw_urls, email):
+TRY_AGAIN = ("Please try again, and make sure each link goes to a medical "
+             "provider directory — not plain text, and not a link to "
+             "something else.")
+
+
+def friendly_error(exc):
+    """Turn any failure into something a non-technical person can act on.
+
+    Returns (message, technical_detail). The detail is kept for the
+    collapsed section and for bug reports; it never leads.
+    """
+    if isinstance(exc, directory_scraper.FriendlyError):
+        return exc.message, exc.detail
+
+    text = str(exc)
+    lowered = text.lower()
+    detail = f"{type(exc).__name__}: {text}"
+
+    if "firecrawl api key" in lowered or "fc-" in lowered:
+        return ("This tool needs a Firecrawl key to read directory pages, "
+                "and none is set up. Whoever installed this can add one to "
+                "the .env file.", detail)
+    if "payment" in lowered or "credit" in lowered or "402" in text:
+        return ("The page-reading service has run out of credits, so the "
+                "directory pages could not be read. This is an account "
+                "issue, not a problem with what you entered.", detail)
+    if "429" in text or "rate limit" in lowered:
+        return ("The medical research database is asking us to slow down. "
+                "Please wait a few minutes and try again.", detail)
+    if isinstance(exc, (urllib.error.URLError, OSError)) or \
+            "urlopen" in lowered or "connection" in lowered or \
+            "timed out" in lowered or "nodename" in lowered:
+        return ("Could not reach the internet. Check your connection and "
+                "try again.", detail)
+    if "dns" in lowered or "resolution" in lowered or \
+            "name or service not known" in lowered:
+        return ("That web address could not be found. Check that the link "
+                "opens in your browser, then copy it again from the "
+                "address bar.", detail)
+    if "404" in text or "not found" in lowered:
+        return ("One of those pages could not be found. Check that each "
+                "link still opens in your browser. " + TRY_AGAIN, detail)
+
+    return ("Something went wrong while searching. " + TRY_AGAIN, detail)
+
+
+def pipeline(run_id, urls, email):
     log = make_logger(run_id)
     try:
         from Bio import Entrez
@@ -334,16 +412,16 @@ def pipeline(run_id, raw_urls, email):
             Entrez.api_key = os.environ["NCBI_API_KEY"]
 
         api_key = directory_scraper.get_api_key()
-        urls = directory_scraper.split_urls(raw_urls)
         set_field(run_id, note=f"Reading {len(urls)} directory page(s)...")
         log(f"Reading {len(urls)} directory page(s) ...")
         rows, detected = directory_scraper.build_roster(
             urls, api_key, log=log)
         if not rows:
-            set_field(run_id, note="No doctors were found on those pages. "
-                                   "If the directory hides its list behind a "
-                                   "search button, link straight to a "
-                                   "results page.")
+            set_field(run_id, problems=[
+                "No doctors were found on those pages. " + TRY_AGAIN,
+                "If the page does list doctors, it may hide them behind a "
+                "search button — open the directory, run the search "
+                "yourself, and paste the address of the results page."])
             return
 
         out_dir = os.path.join(HERE, "output")
@@ -384,12 +462,10 @@ def pipeline(run_id, raw_urls, email):
             if run_id in RUNS:
                 RUNS[run_id]["results"] = list(by_doctor.values())
 
-    except SystemExit as exc:
-        log(f"STOPPED: {exc}")
-        set_field(run_id, note=f"Stopped: {exc}")
-    except Exception as exc:
+    except BaseException as exc:                    # SystemExit included
         log(f"ERROR: {exc}")
-        set_field(run_id, note=f"Something went wrong: {exc}")
+        message, detail = friendly_error(exc)
+        set_field(run_id, problems=[message], detail=detail)
     finally:
         with LOCK:
             if run_id in RUNS:
@@ -420,10 +496,13 @@ class Handler(BaseHTTPRequestHandler):
                             "results": list(run["results"]),
                             "condition": run.get("condition", ""),
                             "note": run.get("note", ""),
+                            "problems": list(run.get("problems", [])),
+                            "detail": run.get("detail", ""),
                             "doctors": list(run.get("doctors", [])),
                             "csv": run.get("csv", "")} if run else
                            {"done": True, "results": [], "doctors": [],
-                            "csv": "", "condition": "",
+                            "csv": "", "condition": "", "problems": [],
+                            "detail": "",
                             "note": "This run is no longer available. "
                                     "Press Run to start a new one."})
             self._send(json.dumps(payload), "application/json")
@@ -440,16 +519,29 @@ class Handler(BaseHTTPRequestHandler):
         email = (form.get("email", [""])[0].strip()
                  or os.environ.get("NCBI_EMAIL", ""))
 
-        problems = []
-        if not raw_urls:
-            problems.append("Please paste at least one directory URL.")
+        urls, problems = directory_scraper.validate_urls(raw_urls)
         if not email or "@" not in email:
-            problems.append("Please enter a valid email -- PubMed requires one.")
+            problems.append("Please enter a valid email address — PubMed "
+                            "requires one on every request.")
+
+        # Each run holds open PubMed connections for minutes. Letting them
+        # pile up gets the user's own address rate-limited, so refuse
+        # rather than degrade every run at once.
+        with LOCK:
+            active = sum(1 for r in RUNS.values() if not r["done"])
+        if active >= MAX_ACTIVE_RUNS and not problems:
+            problems.append(
+                f"A search is already running. Please wait for it to finish "
+                f"before starting another — PubMed limits how fast anyone "
+                f"may search, and running several at once gets them all "
+                f"blocked.")
 
         run_id = new_run()
-        if problems:
+        if problems or not urls:
+            if not problems:
+                problems = ["Please paste at least one directory web address."]
             with LOCK:
-                RUNS[run_id]["note"] = " ".join(problems)
+                RUNS[run_id]["problems"] = problems
                 RUNS[run_id]["done"] = True
             self._send(json.dumps({"ok": False, "run": run_id}),
                        "application/json")
@@ -459,7 +551,7 @@ class Handler(BaseHTTPRequestHandler):
             os.environ["NCBI_EMAIL"] = email
             remember_email(email)
 
-        threading.Thread(target=pipeline, args=(run_id, raw_urls, email),
+        threading.Thread(target=pipeline, args=(run_id, urls, email),
                          daemon=True).start()
         self._send(json.dumps({"ok": True, "run": run_id}),
                    "application/json")

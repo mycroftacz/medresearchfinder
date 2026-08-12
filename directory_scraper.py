@@ -26,11 +26,41 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 import urllib.request
 from collections import Counter
 from urllib.error import HTTPError
 
 FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape"
+
+# Each URL costs a Firecrawl credit and a minute of PubMed time, so the
+# input is capped rather than trusted.
+MAX_URLS = 10
+MAX_DOCTORS = 150
+
+# Sites that are certainly not clinician directories. This is not a
+# security boundary -- it is a courtesy, so an obvious mistake fails
+# instantly instead of spending a scrape to discover YouTube has no
+# doctors on it. Anything not listed here is still checked by reading the
+# page.
+NON_DIRECTORY_HOSTS = {
+    "youtube.com", "youtu.be", "google.com", "facebook.com", "fb.com",
+    "instagram.com", "twitter.com", "x.com", "tiktok.com", "reddit.com",
+    "amazon.com", "netflix.com", "wikipedia.org", "linkedin.com",
+    "pinterest.com", "spotify.com", "twitch.tv", "ebay.com", "yahoo.com",
+    "bing.com", "chatgpt.com", "openai.com", "claude.ai", "gmail.com",
+}
+
+# Addresses that never host a public directory; blocked so a pasted
+# internal URL cannot turn this into a probe of a private network.
+PRIVATE_HOST_PATTERN = re.compile(
+    r"^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|"
+    r"\[?::1\]?|0\.0\.0\.0)", re.I)
+
+# A real hostname: dot-separated labels ending in an alphabetic TLD. Prose
+# is otherwise happy to pose as one -- "at N.Y.U. please" has dots in it.
+VALID_HOST_PATTERN = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", re.I)
 
 # What we ask Firecrawl's LLM extraction to pull off each page.
 EXTRACT_SCHEMA = {
@@ -42,6 +72,15 @@ EXTRACT_SCHEMA = {
                            "name -- e.g. 'NYU Langone', 'Mount Sinai', "
                            "'Mayo Clinic'. NOT the name of the individual "
                            "clinic, center, or department within it.",
+        },
+        "is_clinician_directory": {
+            "type": "boolean",
+            "description": "True only if this page lists named individual "
+                           "doctors or clinicians, as a hospital or medical "
+                           "school directory does. False for news articles, "
+                           "product pages, social media, patient "
+                           "information, or any page that names no "
+                           "clinicians.",
         },
         "clinical_focus": {
             "type": "string",
@@ -125,33 +164,47 @@ def get_api_key(explicit=None):
     return key
 
 
+class FriendlyError(Exception):
+    """An error with something a non-technical person can act on.
+
+    Carries the technical detail separately so the interface can show the
+    plain-English message and keep the diagnostics out of the way.
+    """
+
+    def __init__(self, message, detail=""):
+        super().__init__(message)
+        self.message = message
+        self.detail = detail
+
+
 def die_on_403(exc, url):
-    """Per project policy: on HTTP 403, dump everything we know and stop."""
-    print("\n" + "!" * 70)
-    print("HTTP 403 FORBIDDEN -- stopping, as configured.")
-    print("!" * 70)
-    print(f"While scraping   : {url}")
-    print(f"Full error       : {exc}")
-    print(f"Server headers   : {dict(exc.headers) if exc.headers else 'none'}")
+    """On HTTP 403, gather everything we know and stop."""
     body = ""
     try:
         body = exc.read().decode("utf-8", "replace")[:2000]
     except Exception:
         pass
-    if body:
-        print(f"Response body    :\n{body}")
-    print("""
-A 403 here can come from two different places:
-  1. Firecrawl itself (bad/expired API key, plan limits) -- the response
-     body above will mention your key or account if so.
-  2. The TARGET SITE refusing to be scraped -- Firecrawl relays that.
-     Hospital sites often sit behind aggressive bot protection
-     (Cloudflare, Akamai). Options: try the page again later, use
-     Firecrawl's stealth proxy option, or copy the names off the page
-     by hand into the CSV -- the profiler doesn't care how the CSV
-     was made.
-""")
-    raise SystemExit(1)
+    headers = dict(exc.headers) if exc.headers else {}
+
+    detail = (f"HTTP 403 Forbidden while reading {url}\n"
+              f"Error: {exc}\nHeaders: {headers}\n"
+              f"Body: {body}\n\n"
+              "A 403 comes from one of two places:\n"
+              "  1. Firecrawl itself -- expired key or plan limits; the "
+              "body above will say so.\n"
+              "  2. The hospital's website refusing automated reading. "
+              "Hospital sites often sit behind bot protection "
+              "(Cloudflare, Akamai).")
+    print("\n" + "!" * 70)
+    print("HTTP 403 FORBIDDEN -- stopping, as configured.")
+    print("!" * 70)
+    print(detail)
+
+    raise FriendlyError(
+        "That hospital's website would not let this tool read the page. "
+        "Some hospital sites block automated reading. Try a different "
+        "directory page, or try again later.",
+        detail)
 
 
 def scrape_page(url, api_key, log=print, wait_ms=8000):
@@ -217,6 +270,12 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
                 institution += f"|{alias}"
     physicians = extract.get("physicians") or []
     clinical_focus = (extract.get("clinical_focus") or "").strip()
+    # A page can be on a hospital domain and still not be a directory.
+    # Trust the reading of the page over the shape of the URL, but only to
+    # reject: a page that named doctors is a directory whatever it says.
+    if extract.get("is_clinician_directory") is False and not physicians:
+        log("    this page does not list individual doctors")
+        return institution, [], clinical_focus
     log(f"    {len(physicians)} providers found"
         + (f" ({institution.split('|')[0]}"
            f"{', ' + clinical_focus if clinical_focus else ''})"
@@ -313,6 +372,12 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
     # When pages disagree about what the directory covers, the page listing
     # the most doctors wins; a stray "sleep medicine" sub-page shouldn't
     # redefine an epilepsy center.
+    if len(rows) > MAX_DOCTORS:
+        log(f"    NOTE: {len(rows)} people found; searching the first "
+            f"{MAX_DOCTORS}. PubMed rate-limits heavy use, and a larger "
+            f"batch risks being blocked partway through.")
+        rows = rows[:MAX_DOCTORS]
+
     detected = focus_votes.most_common(1)[0][0] if focus_votes else ""
     return rows, detected
 
@@ -327,8 +392,122 @@ def write_roster(rows, out_path):
 
 
 def split_urls(raw):
-    """The UI asks for semicolon-separated URLs; be forgiving about it."""
-    return [u.strip() for u in raw.split(";") if u.strip()]
+    """The UI asks for semicolon-separated URLs; be forgiving about it.
+
+    Any whitespace separates too, not just semicolons. That covers one
+    link per line, and it covers the autocorrect on phones and Macs that
+    turns a double space into ". " -- which would otherwise weld two
+    links into one unparseable string.
+    """
+    parts = re.split(r"[;,\s]+", raw)
+    cleaned = []
+    for part in parts:
+        # Strip what pasting drags along: sentence punctuation left by
+        # autocorrect, and the <angle brackets> mail clients wrap links in.
+        part = part.strip().strip("<>\"'“”‘’")
+        part = part.rstrip(".,;:!?")
+        if part:
+            cleaned.append(part)
+    return cleaned
+
+
+def validate_urls(raw):
+    """Check pasted input before spending a single request on it.
+
+    Returns (good_urls, problems). Problems are phrased for the person who
+    pasted them, not for a log file.
+    """
+    # Guard the pathological paste before parsing it. Truncating instead
+    # would split a URL down the middle and report that fragment as
+    # malformed, which tells the user nothing about the real problem.
+    if len(raw) > 20000:
+        return [], [f"That is far more text than this tool accepts. Please "
+                    f"paste up to {MAX_URLS} links, separated by "
+                    f"semicolons."]
+
+    entries = split_urls(raw)
+    if not entries:
+        return [], ["Please paste at least one directory web address."]
+
+    # Whitespace separates entries, so a typed sentence arrives as a pile
+    # of words. Recognise that as one mistake instead of complaining about
+    # every word in it.
+    if not any("://" in e or "." in e for e in entries):
+        return [], ["That looks like a sentence rather than a web address. "
+                    "Open the hospital's \"find a doctor\" page in your "
+                    "browser and copy the address from the address bar — it "
+                    "should start with https://"]
+
+    good, problems, seen = [], [], set()
+
+    for entry in entries:
+        candidate = entry if "://" in entry else "https://" + entry
+        try:
+            parsed = urllib.parse.urlparse(candidate)
+        except ValueError:
+            parsed = None
+
+        host = (parsed.netloc.split("@")[-1].split(":")[0].lower()
+                if parsed else "")
+
+        if not parsed or parsed.scheme not in ("http", "https") or not host:
+            shown = entry if len(entry) <= 60 else entry[:57] + "..."
+            problems.append(
+                f'"{shown}" is not a web address. Paste the link to a '
+                f"hospital's doctor directory, copied from your browser's "
+                f"address bar (it should start with https://).")
+            continue
+
+        if PRIVATE_HOST_PATTERN.match(host):
+            problems.append(f'"{entry}" is not a public web address.')
+            continue
+
+        if not VALID_HOST_PATTERN.match(host):
+            shown = entry if len(entry) <= 60 else entry[:57] + "..."
+            problems.append(
+                f'"{shown}" is not a web address. Paste the link to a '
+                f"hospital's doctor directory, copied from your browser's "
+                f"address bar (it should start with https://).")
+            continue
+
+        bare = host[4:] if host.startswith("www.") else host
+        root = ".".join(bare.split(".")[-2:])
+        if bare in NON_DIRECTORY_HOSTS or root in NON_DIRECTORY_HOSTS:
+            problems.append(
+                f"{bare} is not a hospital directory. Paste a link to a "
+                f"hospital or medical school's \"find a doctor\" page.")
+            continue
+
+        normalized = candidate.rstrip("/")
+        if normalized.lower() in seen:
+            continue                       # same page twice: quietly ignore
+        seen.add(normalized.lower())
+        good.append(normalized)
+
+    if len(good) > MAX_URLS:
+        return [], [f"You entered {len(good)} links; this tool searches up "
+                    f"to {MAX_URLS} pages at a time. Please run the rest "
+                    f"separately."]
+
+    # Nothing usable and a scattering of complaints means the input was
+    # prose, not a list of links -- say that once.
+    if not good and len(problems) > 2:
+        return [], ["That doesn't look like a list of web addresses. Open "
+                    "the hospital's \"find a doctor\" page in your browser, "
+                    "copy the address from the address bar, and paste it "
+                    "here. Separate several with semicolons."]
+
+    # Deduplicate and cap: five variations of the same complaint is noise.
+    unique, shown = [], set()
+    for problem in problems:
+        if problem not in shown:
+            shown.add(problem)
+            unique.append(problem)
+    if len(unique) > 3:
+        unique = unique[:3] + [f"...and {len(unique) - 3} more entries that "
+                               f"are not web addresses."]
+
+    return good, unique
 
 
 def main(argv=None):
