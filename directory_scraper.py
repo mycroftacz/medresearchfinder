@@ -37,8 +37,19 @@ EXTRACT_SCHEMA = {
     "properties": {
         "institution": {
             "type": "string",
-            "description": "Short name of the hospital or medical institution "
-                           "this directory page belongs to",
+            "description": "The parent hospital, health system, or university "
+                           "name -- e.g. 'NYU Langone', 'Mount Sinai', "
+                           "'Mayo Clinic'. NOT the name of the individual "
+                           "clinic, center, or department within it.",
+        },
+        "institution_aliases": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Other names this same institution publishes "
+                           "under in academic papers, including its "
+                           "abbreviation and its university name. For NYU "
+                           "Langone: ['NYU', 'New York University']. Give 2-3 "
+                           "distinct short forms, not the clinic name.",
         },
         "physicians": {
             "type": "array",
@@ -62,8 +73,9 @@ EXTRACT_PROMPT = (
     "This is a page from a hospital or medical-school directory of clinicians. "
     "List every individual physician/provider shown on the page with their "
     "credentials and specialty if given. Use the person's name only, without "
-    "titles like Dr. or credentials like MD. Also give the short name of the "
-    "institution the directory belongs to."
+    "titles like Dr. or credentials like MD. Also give the parent hospital, "
+    "health system, or university the directory belongs to (e.g. 'NYU "
+    "Langone'), not the individual clinic or center name."
 )
 
 CREDENTIAL_TOKENS = {
@@ -130,11 +142,19 @@ A 403 here can come from two different places:
     raise SystemExit(1)
 
 
-def scrape_page(url, api_key, log=print):
-    """One directory page -> (institution, [ {name, credentials, specialty} ])."""
+def scrape_page(url, api_key, log=print, wait_ms=8000):
+    """One directory page -> (institution, [ {name, credentials, specialty} ]).
+
+    Hospital directories almost always render their provider list with
+    JavaScript after the page loads, so we tell Firecrawl to wait before
+    reading. Without the wait these pages return nothing but cookie
+    banners.
+    """
     payload = json.dumps({
         "url": url,
         "formats": ["extract"],
+        "waitFor": wait_ms,
+        "onlyMainContent": True,
         "extract": {"prompt": EXTRACT_PROMPT, "schema": EXTRACT_SCHEMA},
     }).encode()
     request = urllib.request.Request(
@@ -174,6 +194,15 @@ def scrape_page(url, api_key, log=print):
 
     extract = (data.get("data") or {}).get("extract") or {}
     institution = (extract.get("institution") or "").strip()
+    aliases = [a.strip() for a in (extract.get("institution_aliases") or [])
+               if a and a.strip()]
+    # PubMed indexes one institution under several names, so search them all.
+    if institution:
+        seen_lower = {institution.lower()}
+        for alias in aliases:
+            if alias.lower() not in seen_lower:
+                seen_lower.add(alias.lower())
+                institution += f"|{alias}"
     physicians = extract.get("physicians") or []
     log(f"    {len(physicians)} providers found"
         + (f" ({institution})" if institution else ""))
@@ -224,6 +253,14 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
     for url in urls:
         log(f"Scraping {url} ...")
         institution, physicians = scrape_page(url, api_key, log=log)
+        if not physicians:
+            # Slow directory: give the page a lot longer before giving up.
+            log("    nothing found -- retrying with a longer page wait ...")
+            institution, physicians = scrape_page(
+                url, api_key, log=log, wait_ms=20000)
+        if not physicians:
+            log(f"    WARNING: no providers on this page. If the directory "
+                f"needs a search click, link straight to a results page.")
         affiliation = affiliation_override or institution or ""
         for person in physicians:
             name = (person.get("name") or "").strip()
@@ -240,6 +277,19 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
                 "affiliation": affiliation,
                 "notes": (person.get("specialty") or "").strip(),
             })
+
+    # Two different people can collapse to the same PubMed author string
+    # ("Daniel Friedman" and "David E. Friedman" are both "Friedman D").
+    # PubMed can't separate them either, so their profiles would be merged --
+    # say so rather than silently reporting one person's blended record.
+    counts = {}
+    for row in rows:
+        counts.setdefault(row["author"], []).append(row["name"])
+    for author, names in sorted(counts.items()):
+        if len(names) > 1:
+            log(f"    NOTE: {' and '.join(names)} both search PubMed as "
+                f"'{author}' -- their results will be mixed together. "
+                f"Add a middle initial in the CSV to separate them.")
     return rows
 
 

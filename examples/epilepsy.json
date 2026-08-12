@@ -1,0 +1,56 @@
+{
+  "_comment": "Third worked example: epilepsy. Shows the pattern outside oncology/GI -- the tracked vocabulary is anti-seizure medications, surgical and device therapies, and the clinical situations that decide referral.",
+
+  "focus": {
+    "label": "Epilepsy",
+    "mesh_terms": ["Epilepsy", "Epilepsies, Partial", "Epilepsy, Generalized",
+                   "Drug Resistant Epilepsy", "Status Epilepticus",
+                   "Seizures"],
+    "text_terms": ["epilepsy", "epileptic", "seizure", "seizures"]
+  },
+
+  "start_year": 2018,
+  "max_papers": 500,
+  "min_focus_papers": 10,
+  "topics_per_researcher": 12,
+  "min_papers_per_topic": 2,
+  "max_stars": 5,
+
+  "extra_boring_mesh": [
+    "Anticonvulsants",
+    "Electroencephalography",
+    "Brain",
+    "Treatment Outcome",
+    "Magnetic Resonance Imaging"
+  ],
+
+  "tracked_terms": {
+    "Drug-resistant / refractory": ["drug-resistant", "drug resistant", "refractory", "intractable", "pharmacoresistant", "treatment failure"],
+    "Levetiracetam (Keppra)": ["levetiracetam", "keppra", "brivaracetam", "briviact"],
+    "Lamotrigine (Lamictal)": ["lamotrigine", "lamictal"],
+    "Valproate": ["valproate", "valproic acid", "divalproex", "depakote"],
+    "Carbamazepine / oxcarbazepine": ["carbamazepine", "tegretol", "oxcarbazepine", "trileptal", "eslicarbazepine"],
+    "Lacosamide (Vimpat)": ["lacosamide", "vimpat"],
+    "Perampanel (Fycompa)": ["perampanel", "fycompa"],
+    "Cenobamate (Xcopri)": ["cenobamate", "xcopri"],
+    "Cannabidiol (Epidiolex)": ["cannabidiol", "epidiolex", "cbd"],
+    "Newer ASMs (class)": ["antiseizure medication", "antiseizure medications", "anti-seizure", "antiepileptic drug", "antiepileptic drugs", "asm", "aed"],
+    "Epilepsy surgery": ["epilepsy surgery", "resective surgery", "temporal lobectomy", "lesionectomy", "hemispherectomy", "corpus callosotomy"],
+    "Laser ablation (LITT)": ["laser interstitial", "litt", "laser ablation"],
+    "Neuromodulation / RNS / DBS": ["responsive neurostimulation", "deep brain stimulation", "vagus nerve stimulation", "vns", "neuromodulation", "neurostimulation"],
+    "Intracranial EEG / SEEG": ["intracranial eeg", "stereoelectroencephalography", "seeg", "electrocorticography", "subdural"],
+    "Presurgical localization": ["seizure onset zone", "epileptogenic zone", "presurgical evaluation", "localization"],
+    "Status epilepticus": ["status epilepticus", "convulsive status"],
+    "SUDEP / mortality": ["sudep", "sudden unexpected death", "mortality"],
+    "Genetics / precision therapy": ["genetic", "genomic", "scn1a", "dravet", "gene therapy", "precision medicine"],
+    "Pediatric epilepsy": ["pediatric", "children", "infantile spasms", "lennox-gastaut", "childhood"],
+    "Pregnancy / teratogenicity": ["pregnancy", "pregnant", "teratogenic", "teratogenicity", "maternal"],
+    "Psychiatric comorbidity": ["depression", "anxiety", "psychiatric", "suicidality", "psychosis"],
+    "Cognition / memory": ["cognitive", "cognition", "memory", "neuropsychological"],
+    "PNES / functional seizures": ["psychogenic nonepileptic", "psychogenic non-epileptic", "functional seizures", "pnes"],
+    "Ketogenic diet": ["ketogenic", "modified atkins", "dietary therapy"],
+    "Wearables / seizure detection": ["wearable", "seizure detection", "seizure forecasting", "machine learning", "deep learning"],
+    "Real-world / registry data": ["real-world", "real world", "registry", "claims data", "population-based"],
+    "Clinical trial (RCT)": ["randomized", "randomised", "placebo-controlled", "phase 3", "phase iii", "phase 2", "phase ii"]
+  }
+}

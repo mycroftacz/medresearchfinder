@@ -165,9 +165,21 @@ def compile_patterns(tracked_terms):
 
 
 def find_paper_ids(author, affiliation, start_year, max_papers, pause):
-    """Search PubMed for one author's PMIDs."""
+    """Search PubMed for one author's PMIDs.
+
+    An affiliation may list alternatives separated by "|". Institutions are
+    indexed inconsistently -- the same NYU author appears under "NYU
+    Langone", "NYU", and "New York University" -- so any of them counts.
+    """
+    variants = [a.strip() for a in affiliation.split("|") if a.strip()]
+    if len(variants) > 1:
+        affiliation_clause = "(" + " OR ".join(
+            f"{v}[Affiliation]" for v in variants) + ")"
+    else:
+        affiliation_clause = f"{variants[0]}[Affiliation]" if variants else ""
+
     query = (
-        f'{author}[Author] AND {affiliation}[Affiliation] '
+        f'{author}[Author] AND {affiliation_clause} '
         f'AND ("{start_year}"[PDAT] : "3000"[PDAT])'
     )
     try:

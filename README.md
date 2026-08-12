@@ -76,6 +76,22 @@ unusual compound surnames occasionally need a manual touch-up, and you can
 delete anyone you don't want profiled (the scrape includes surgeons,
 psychologists, etc. if the directory lists them).
 
+### Scraping notes
+
+- **Hospital directories are JavaScript-heavy.** The scraper waits 8
+  seconds for the provider list to render, and automatically retries with a
+  20-second wait if a page comes back empty. A page that still yields
+  nothing usually hides its list behind a search button — link straight to
+  a results page instead.
+- **Two doctors can share an author string.** `Daniel Friedman` and
+  `David E. Friedman` are both `Friedman D`, and PubMed can't separate them
+  either. The scraper warns when this happens; add a middle initial in the
+  CSV (`Friedman DE`) to split them.
+- **Check the affiliation column.** It's used as a PubMed affiliation
+  filter, so it wants the health system (`NYU Langone`), not the clinic
+  (`Comprehensive Epilepsy Center`). The scraper writes several alternative
+  names joined by `|` so that authors indexed under any of them are found.
+
 ## Quick start (command line, no scraping)
 
 ```bash
@@ -124,6 +140,10 @@ Everything disease-specific lives in two files. Copy the examples and edit.
 | `min_focus_papers` | Researchers below this many on-condition papers are dropped |
 | `start_year`, `max_papers`, `topics_per_researcher`, `min_papers_per_topic`, `max_stars` | Tuning knobs; the example's defaults are sensible |
 
+Three worked examples ship in `examples/` — ulcerative colitis,
+triple-negative breast cancer, and epilepsy — spanning GI, oncology, and
+neurology. Copy whichever is closest to your specialty.
+
 A minimal cardiology config would look like:
 
 ```json
@@ -153,6 +173,11 @@ Jordan Axelrad,Axelrad J,NYU,
   fragment ("Sinai", "Mayo") beats the full institution name. Beware of
   fragments that match multiple institutions ("Sinai" also matches
   Cedars-Sinai).
+- List **alternatives with `|`** when an institution publishes under several
+  names — `NYU Langone|NYU|New York University` matches any of them. This
+  matters more than it sounds: some NYU authors have 10 papers under
+  "New York University" and zero under "NYU Langone". The scraper fills
+  these in automatically.
 - `notes` (and any other extra column) is ignored by the program — use it
   for your own bookkeeping.
 - If someone returns 0 papers, the affiliation string is the usual culprit:
