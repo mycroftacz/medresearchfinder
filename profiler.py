@@ -484,7 +484,13 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
     corpus = [a for arts in fetched.values() for a in arts if a["is_focus"]]
     if not corpus:
         log("\nNo papers matched the condition. Nothing to profile.")
-        return None, [], []
+        # Still report who was searched and what was found -- returning
+        # nothing here made the doctors vanish from the page entirely.
+        for name, articles in fetched.items():
+            excluded.append((name, 0, "no matching papers"))
+        thin = [{"name": name, "papers": n, "why": why}
+                for name, n, why in sorted(excluded, key=lambda x: -x[1])]
+        return None, [], thin
     vocabulary = auto_topics.discover_vocabulary(corpus, focus)
     background = auto_topics.find_undiscriminating(corpus, vocabulary, focus)
     log(f"\nLearned {len(vocabulary)} drug/substance terms from "

@@ -159,6 +159,12 @@ PAGE = """<!DOCTYPE html>
             border-radius: 8px; padding: .9rem 1.1rem; margin: 0 0 1.6rem; }}
   .scope h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
   .scope p {{ margin: .5rem 0; font-size: .93rem; }}
+  .example-url {{ background: #fff; border: 1px solid #cfe0f0;
+                  border-radius: 6px; padding: .5rem .7rem; }}
+  .example-url code {{ font-size: .84rem; word-break: break-all; }}
+  .example-why {{ color: #555; font-size: .85rem; }}
+  .note.finished {{ background: #ecfdf5; border: 1px solid #a7f3d0;
+                    color: #065f46; font-weight: 600; }}
   .legend {{ background: #fafafa; border: 1px solid #e5e5e5;
              border-radius: 8px; padding: .9rem 1.1rem; margin-top: 1.6rem; }}
   .legend h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
@@ -196,7 +202,10 @@ PAGE = """<!DOCTYPE html>
   school</b> that lists doctors by name &mdash; a department's team page,
   or a condition centre's list of specialists. These are the places where
   doctors both treat patients and publish research, which is what this
-  tool measures.</p>
+  tool measures. A page that works well looks like this:</p>
+  <p class="example-url"><code>https://nyulangone.org/locations/inflammatory-bowel-disease-center</code><br>
+  <span class="example-why">&mdash; one condition, one hospital, doctors
+  listed by name.</span></p>
   <p><b>Won't work &mdash; booking sites.</b> Zocdoc, Healthgrades, Vitals
   and similar services are not supported yet. Their pages are built for
   booking appointments and are too large and complex for this tool to
@@ -271,6 +280,7 @@ hospital or medical school page listing doctors by name.</span></div>
 
 <script>
 let RUN_ID = null;
+let ANNOUNCED = false;   // scroll to the results only once per run
 
 // The page tells people not to refresh, but a ten-minute search should not
 // be lost to a stray reload: the run lives on the server, so remember its
@@ -304,6 +314,7 @@ async function start() {{
   document.getElementById('note').innerHTML =
     '<p class="note">Gathering data, do not refresh this page, ' +
     'this may take a few minutes :)</p>';
+  ANNOUNCED = false;
   const resp = await fetch('/run', {{method: 'POST', body}});
   const info = await resp.json();
   // Poll only this run: another tab's run must never render here.
@@ -351,6 +362,16 @@ async function poll() {{
       '</ul>' + detail + '</div>';
     document.getElementById('run').disabled = false;
     forgetRun();
+    document.title = 'Med Research Finder';
+    if (!ANNOUNCED) {{
+      ANNOUNCED = true;
+      // Deferred: scrolling in the same tick as the DOM updates gets the
+      // smooth scroll cancelled by the layout shift.
+      setTimeout(function () {{
+        document.getElementById('note')
+                .scrollIntoView({{behavior: 'auto', block: 'start'}});
+      }}, 200);
+    }}
     return;
   }}
 
@@ -360,8 +381,10 @@ async function poll() {{
   const message = data.done ? data.note : (data.progress || data.note ||
       'Gathering data, do not refresh this page, this may take a few ' +
       'minutes :)');
+  const noteClass = data.done ? 'note finished' : 'note';
   document.getElementById('note').innerHTML =
-    message ? '<p class="note">' + esc(message) + '</p>' : '';
+    message ? '<p class="' + noteClass + '">' +
+              (data.done ? '&#10003; ' : '') + esc(message) + '</p>' : '';
 
   if (data.results && data.results.length) {{
     // Name the condition on screen: if it guessed wrong from the pages,
@@ -411,8 +434,22 @@ async function poll() {{
   if (data.done) {{
     document.getElementById('run').disabled = false;
     forgetRun();
+    // Completion has to announce itself: the results render below the
+    // fold, and a new user has no reason to know to scroll. The tab
+    // title covers anyone who switched away during the wait.
+    document.title = '✓ Finished — Med Research Finder';
+    if (!ANNOUNCED) {{
+      ANNOUNCED = true;
+      // Deferred: scrolling in the same tick as the DOM updates gets the
+      // smooth scroll cancelled by the layout shift.
+      setTimeout(function () {{
+        document.getElementById('note')
+                .scrollIntoView({{behavior: 'auto', block: 'start'}});
+      }}, 200);
+    }}
     return;
   }}
+  document.title = 'Searching… — Med Research Finder';
   setTimeout(poll, 1500);
 }}
 </script>
