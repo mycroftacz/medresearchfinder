@@ -243,6 +243,11 @@ hospital or medical school page listing doctors by name.</span></div>
 <h2>Step 2 &mdash; Run</h2>
 <button id="run" onclick="start()">Run</button>
 
+<!-- Status sits directly under the button, above the reading guide: while
+     a search runs this is the only thing telling the user it started, and
+     below the guide it was off-screen exactly when it mattered. -->
+<div id="note"></div>
+
 <div class="legend">
   <h3>How to read the results</h3>
   <p>Each doctor is listed with the subjects they publish on, <b>most
@@ -273,7 +278,6 @@ hospital or medical school page listing doctors by name.</span></div>
   a starting point for conversation, not a verdict.</p>
 </div>
 
-<div id="note"></div>
 <div id="results"></div>
 <div id="thin"></div>
 <div id="searched"></div>
@@ -441,10 +445,14 @@ async function poll() {{
     if (!ANNOUNCED) {{
       ANNOUNCED = true;
       // Deferred: scrolling in the same tick as the DOM updates gets the
-      // smooth scroll cancelled by the layout shift.
+      // scroll cancelled by the layout shift.
       setTimeout(function () {{
-        document.getElementById('note')
-                .scrollIntoView({{behavior: 'auto', block: 'start'}});
+        // Land on the output itself. The status line is up by the button
+        // now, so scrolling there would move the page away from results.
+        const target = ['results', 'thin', 'note'].map(function (id) {{
+          return document.getElementById(id);
+        }}).find(function (el) {{ return el && el.innerHTML.trim(); }});
+        if (target) target.scrollIntoView({{behavior: 'auto', block: 'start'}});
       }}, 200);
     }}
     return;
