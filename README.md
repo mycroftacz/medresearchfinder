@@ -163,6 +163,27 @@ Jordan Axelrad,Axelrad J,NYU Langone|NYU|New York University,
   University" and zero under "NYU Langone". The scraper fills these in.
 - `notes` and any other extra column are ignored by the program.
 
+## Tests
+
+```bash
+python tests.py
+```
+
+Runs offline in about a second. **Run it before every change**, because
+this tool is a stack of interacting heuristics — word lists, thresholds,
+ordering rules — and fixing one has repeatedly broken another:
+
+- tolerating `url1, url2` broke addresses containing commas in a query
+  string, which real directory pages use;
+- treating "director" as a non-clinical role rejected a genuine hospital
+  directory, because one doctor listed there runs the centre;
+- keeping unfinished runs in memory, so they could not be evicted
+  mid-search, made them accumulate without limit.
+
+None of those were caught by reasoning about the change. Every case in
+`tests.py` is a bug that actually happened, so the file only grows when
+something breaks.
+
 ## Known limits
 
 - **Author disambiguation is name + affiliation only.** Daniel Friedman and
