@@ -17,6 +17,7 @@ import builtins
 import html
 import json
 import os
+import re
 import threading
 import urllib.error
 import webbrowser
@@ -52,8 +53,13 @@ def new_run():
                         "progress": "", "note": "", "doctors": [],
                         "csv": "", "condition": "", "problems": [],
                         "detail": "", "thin": [], "broad": False}
-        # Keep the history short; these hold every paper's worth of log.
-        for stale in list(RUNS)[:-5]:
+        # Keep the history short, but never discard a run that is still
+        # going: evicting it lost the page's only handle on its own search
+        # ("this run is no longer available" mid-search) and let the
+        # one-at-a-time guard through, since a forgotten run counts as
+        # nobody running.
+        finished = [rid for rid, r in RUNS.items() if r["done"]]
+        for stale in finished[:-5]:
             RUNS.pop(stale, None)
     return run_id
 
@@ -74,8 +80,25 @@ def set_field(run_id, **fields):
             run.update(fields)
 
 
+EMAIL_RE = re.compile(r"^[^@\s,;<>\"'\\]{1,64}@[a-z0-9]"
+                      r"([a-z0-9-]{0,61}[a-z0-9])?"
+                      r"(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", re.I)
+
+
+def valid_email(email):
+    return bool(EMAIL_RE.match((email or "").strip()))
+
+
 def remember_email(email):
-    """NCBI needs an address on every request; ask once, not every run."""
+    """NCBI needs an address on every request; ask once, not every run.
+
+    The value is written into .env, so it must be a single clean line: an
+    address containing a newline could otherwise append its own settings
+    to the file and replace the API key.
+    """
+    email = (email or "").strip()
+    if not valid_email(email):
+        return
     try:
         lines = []
         if os.path.exists(ENV_PATH):
@@ -733,7 +756,7 @@ class Handler(BaseHTTPRequestHandler):
                  or os.environ.get("NCBI_EMAIL", ""))
 
         urls, problems = directory_scraper.validate_urls(raw_urls)
-        if not email or "@" not in email:
+        if not valid_email(email):
             problems.append("Please enter a valid email address — PubMed "
                             "requires one on every request.")
 

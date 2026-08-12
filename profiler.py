@@ -78,6 +78,10 @@ import auto_topics
 # list that reads like a career. Report the count instead.
 MIN_PROFILE_PAPERS = 5
 
+# One PubMed request per person; beyond this a run risks a rate-limit
+# block partway through, which loses the whole search.
+MAX_RESEARCHERS = 150
+
 
 # MeSH headings too generic to be worth reporting, regardless of specialty.
 # Add disease-specific ones (the focus condition itself, its umbrella terms)
@@ -148,23 +152,43 @@ def load_config(path):
     return cfg
 
 
-def load_researchers(path):
+def load_researchers(path, log=print):
     """CSV columns: name, author, affiliation. Extra columns are ignored."""
     people = []
-    with open(path, newline="") as fh:
-        reader = csv.DictReader(fh)
-        missing = {"name", "author", "affiliation"} - set(reader.fieldnames or [])
-        if missing:
-            raise SystemExit(
-                f"{path} is missing column(s): {', '.join(sorted(missing))}. "
-                "Expected header: name,author,affiliation"
-            )
-        for row in reader:
-            if row["name"].strip():
-                people.append({k: row[k].strip() for k in
-                               ("name", "author", "affiliation")})
+    try:
+        with open(path, newline="", errors="replace") as fh:
+            # A stray NUL makes the csv module raise rather than skip, and
+            # scraped pages do occasionally carry one.
+            reader = csv.DictReader(
+                (line.replace("\0", "") for line in fh))
+            missing = ({"name", "author", "affiliation"}
+                       - set(reader.fieldnames or []))
+            if missing:
+                raise SystemExit(
+                    f"{path} is missing column(s): "
+                    f"{', '.join(sorted(missing))}. "
+                    "Expected header: name,author,affiliation")
+            for row in reader:
+                name = (row.get("name") or "").strip()
+                if name:
+                    people.append({k: (row.get(k) or "").strip()[:200]
+                                   for k in ("name", "author",
+                                             "affiliation")})
+    except SystemExit:
+        raise
+    except (csv.Error, UnicodeDecodeError, OSError) as exc:
+        raise SystemExit(f"{path} could not be read as a CSV: {exc}")
+
     if not people:
         raise SystemExit(f"No researchers found in {path}.")
+
+    # One PubMed request per person, so an oversized roster -- a
+    # hand-edited file, a directory listing hundreds -- would earn the
+    # user a rate-limit block partway through.
+    if len(people) > MAX_RESEARCHERS:
+        log(f"Roster has {len(people)} people; searching the first "
+            f"{MAX_RESEARCHERS}. PubMed limits how fast anyone may search.")
+        people = people[:MAX_RESEARCHERS]
     return people
 
 
@@ -191,16 +215,39 @@ def search_name(author):
     return f"{' '.join(parts[:-1])} {parts[-1][0]}"
 
 
+def _clean_term(value, limit=80):
+    """Strip anything that would change the shape of a PubMed query.
+
+    Names and affiliations arrive from scraped pages and from a CSV a user
+    can edit, so a value like 'Smith J[Author] OR 1=1' would otherwise
+    graft extra clauses onto the search.
+    """
+    value = re.sub(r"[\[\]()\"'*:=<>&|;\\/]", " ", str(value or ""))
+    return re.sub(r"\s+", " ", value).strip()[:limit]
+
+
 def build_query(author, affiliation, start_year):
     """The exact PubMed query used, so a person can check it themselves."""
-    author = search_name(author)
-    variants = [a.strip() for a in affiliation.split("|") if a.strip()]
+    author = _clean_term(search_name(author))
+    variants = [_clean_term(a) for a in affiliation.split("|")]
+    variants = [v for v in variants if v][:8]
+    if not author:
+        return ""
     if len(variants) > 1:
         clause = "(" + " OR ".join(f"{v}[Affiliation]" for v in variants) + ")"
+    elif variants:
+        clause = f"{variants[0]}[Affiliation]"
     else:
-        clause = f"{variants[0]}[Affiliation]" if variants else ""
-    return (f'{author}[Author] AND {clause} '
-            f'AND ("{start_year}"[PDAT] : "3000"[PDAT])')
+        clause = ""
+    try:
+        year = int(start_year)
+    except (TypeError, ValueError):
+        year = 2018
+    parts = [f"{author}[Author]"]
+    if clause:
+        parts.append(clause)
+    parts.append(f'("{year}"[PDAT] : "3000"[PDAT])')
+    return " AND ".join(parts)
 
 
 def pubmed_url(query):
@@ -630,10 +677,25 @@ def _report(profiles, excluded, label, min_focus_papers, start_year,
     return rows
 
 
+def _defuse_formula(value):
+    """Stop a spreadsheet treating scraped text as a formula.
+
+    Names and topics come off web pages, so a page can supply a cell such
+    as =cmd|'/c calc'!A1, which Excel offers to execute when the file is
+    opened. Prefixing with an apostrophe keeps the text visible and inert.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@",
+                                                "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def _write_csv(rows, label, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    out_csv = os.path.join(out_dir, f"{slugify(label)}_topics_by_researcher.csv")
-    pd.DataFrame(rows).to_csv(out_csv, index=False)
+    name = slugify(label)[:80] or "results"
+    out_csv = os.path.join(out_dir, f"{name}_topics_by_researcher.csv")
+    safe = [{k: _defuse_formula(v) for k, v in row.items()} for row in rows]
+    pd.DataFrame(safe).to_csv(out_csv, index=False)
     return out_csv
 
 

@@ -167,9 +167,30 @@ EXTRACT_PROMPT = (
 # Letters that only a clinician carries. PhD and MPH are deliberately
 # absent: plenty of non-clinicians hold them.
 CLINICAL_CREDENTIALS = {
-    "md", "do", "mbbs", "mbchb", "mbbch", "dds", "dmd", "dpm", "dvm",
+    "md", "do", "mbbs", "mbchb", "mbbch", "dds", "dmd", "dpm",
     "pharmd", "np", "dnp", "pa", "pa-c", "rn", "aprn", "crna", "cnm",
     "psyd", "od", "dc", "rd", "msn", "fnp", "anp", "pmhnp", "lcsw",
+}
+# DVM is deliberately absent: veterinarians are clinicians, but this tool
+# answers "which doctor should treat me", and a vet is never that answer.
+
+# Roles that sit inside a hospital without practising medicine. These
+# outrank the hospital's own name, which would otherwise vouch for
+# everyone listed on its website -- its executives, chaplains and
+# students included.
+# Deliberately excludes director, chief, president and vice: "Center
+# Director" and "Chief of Gastroenterology" are practising physicians, and
+# treating those words as disqualifying rejected a real IBD directory
+# because one doctor on it runs the centre.
+NON_CLINICAL_ROLES = {
+    "student", "students", "trainee", "trainees", "applicant",
+    "applicants", "alumni", "alumnus", "candidate", "candidates",
+    "executive", "executives", "administrator", "administrators",
+    "administration", "trustee", "trustees",
+    "chaplain", "chaplains", "chaplaincy", "spiritual", "pastoral",
+    "clergy", "volunteer", "volunteers", "donor", "donors",
+    "veterinarian", "veterinarians", "veterinary",
+    "custodial", "security", "facilities", "scheduler", "receptionist",
 }
 
 # Words that place a directory outside medicine. Checked against the
@@ -568,6 +589,27 @@ NOT_A_PERSON_WORDS = {
     "associates", "group", "practice", "partners", "division", "unit",
     "specialties", "specialty", "team", "faculty", "staff", "providers",
     "physicians", "doctors", "and", "amp", "the", "for", "our",
+    # Service and section labels a scrape hands over beside the names.
+    "management", "portal", "appointment", "appointments", "insurance",
+    "billing", "referral", "referrals", "careers", "jobs", "faq",
+    "login", "register", "resources", "information", "overview",
+    "directions", "locations", "visitors",
+}
+
+# Words that are also perfectly good surnames -- Page, Reed, Booker,
+# Bookman. One of these alone proves nothing; a name made entirely of
+# them ("View Profile", "Read More") is a button, not a person.
+WEAK_LABEL_WORDS = {
+    "view", "profile", "book", "online", "read", "more", "click", "here",
+    "next", "previous", "page", "back", "close", "open", "show", "hide",
+    "contact", "us", "about", "home", "learn", "schedule", "request",
+    "patient", "patients", "info", "resource", "menu", "search", "apply",
+    "donate", "support", "news", "events", "blog", "help", "hours",
+    "visit", "location", "find", "all", "new", "see", "now", "to", "top",
+    "start", "go", "submit", "cancel", "save", "print", "share", "call",
+    "map", "get", "your", "my", "this", "select", "choose", "filter",
+    "started", "results", "options", "details", "list", "form", "sign",
+    "join", "follow", "subscribe", "skip", "main", "content",
 }
 
 # Specialty endings: dermatology, psychiatry, pediatrics, radiotherapy.
@@ -594,12 +636,17 @@ def looks_like_person_name(name):
     if len(tokens) < 2:
         return False                       # "Cardiology"
 
-    for token in tokens:
-        bare = token.strip(".-")
+    bare_tokens = [t.strip(".-") for t in tokens]
+    for bare in bare_tokens:
         if bare in NOT_A_PERSON_WORDS or bare in CLINICAL_MARKERS:
             return False
         if bare.endswith(SPECIALTY_SUFFIXES):
             return False
+
+    # Every word a button label uses, and none of its own: "Read More" is
+    # a link, while "Page Brown" is somebody's name.
+    if all(bare in WEAK_LABEL_WORDS for bare in bare_tokens):
+        return False
     return True
 
 
@@ -635,6 +682,16 @@ def looks_clinical(organization, profession, people):
 
     non_clinical = (described | titles) & NON_CLINICAL_MARKERS
     clinical = (described | titles) & CLINICAL_MARKERS
+
+    # What the page says these people ARE outranks where they work: a
+    # hospital's own site would otherwise vouch for its executives,
+    # chaplains and medical students, none of whom practise medicine.
+    # Judged on the page-level profession only -- individual job titles
+    # vary too much, and one person's leadership role should not
+    # disqualify the colleagues listed beside them.
+    role_bar = _words(profession) & NON_CLINICAL_ROLES
+    if role_bar:
+        return "not_medical", (profession or ", ".join(sorted(role_bar)))
 
     # Letters after the name are the strongest evidence either way.
     if clinicians and clinicians >= max(1, len(people) // 4):
@@ -707,7 +764,28 @@ def validate_urls(raw):
     good, problems, seen = [], [], set()
 
     for entry in entries:
+        # Control characters, bidi overrides and zero-width marks have no
+        # place in an address: they cannot help a real link and they can
+        # disguise where one points.
+        if any(ord(c) < 0x20 or ord(c) == 0x7f or
+               c in "​‌‍‪‫‬‭‮﻿"
+               for c in entry):
+            problems.append("That address contains hidden characters. "
+                            "Copy it again from your browser's address bar.")
+            continue
+
+        if len(entry) > 2000:
+            problems.append("That address is too long to be a directory "
+                            "page. Copy it again from the address bar.")
+            continue
+
         candidate = entry if "://" in entry else "https://" + entry
+
+        if "@" in urllib.parse.urlparse(candidate).netloc:
+            # user:password@host would be handed to the scraping service.
+            problems.append("That address contains a username or password. "
+                            "Paste a plain directory link instead.")
+            continue
         try:
             parsed = urllib.parse.urlparse(candidate)
         except ValueError:
