@@ -1,199 +1,167 @@
-# PubMed Topic Profiler
+# Med Research Finder
 
-Find out what any group of physician-researchers *actually* publishes on.
+Find out what any group of doctors *actually* publishes on.
 
-Give it a condition (any disease with a [MeSH heading](https://meshb.nlm.nih.gov))
-and a list of clinicians, and for everyone with enough papers on that
-condition it produces a ranked profile of their specific research topics —
-drugs, procedures, clinical situations — with asterisks marking the papers
-they first-authored:
+Paste the URLs of hospital "find a doctor" pages, press Run, and get each
+physician's research topics back — ranked by how much they publish on them,
+with asterisks marking the papers they first-authored:
 
 ```
-Jordan Axelrad:  [48 Ulcerative colitis papers, 11 as first author]
-   Clinical trial (RCT)
-   Refractory / failed therapy**
-   Vedolizumab (Entyvio)*
-   Microbiome / FMT***
+Orrin Devinsky          254 papers
+   SUDEP / mortality *******
+   Genetics / precision therapy ********
+   Cannabidiol *********
+   Drug-resistant / refractory ***
+   ...
+
+Claude Steriade          34 papers
+   Encephalitis ****
+   Autoantibodies ***
+   Status epilepticus *
    ...
 ```
 
 One asterisk per first-author paper on that topic. First authorship usually
-means the work was theirs to drive rather than a name on a consortium paper.
+means the work was theirs to drive rather than a name on a consortium paper —
+which is why Steriade's 34-paper profile tells you more about her than
+Devinsky's 254-paper one does about him.
 
-A patient choosing between specialists, a fellow choosing a mentor, or a
-department mapping local expertise can use the same tool — only the two
-input files change.
+There is nothing to configure. The condition being profiled and the topic
+vocabulary are both worked out automatically, so the same tool covers
+hepatology, neurosurgery, or anything else with a PubMed footprint.
 
-## Why it reads abstracts, not just MeSH
-
-MeSH (PubMed's controlled vocabulary) lags reality. New drugs wait years for
-a heading, and everyday clinical phrases like "refractory disease" or
-"treatment sequencing" are not MeSH terms at all. A MeSH-only search would
-report that nobody studies the newest therapies, which is false. This tool
-matches your `tracked_terms` against titles and abstracts, then folds MeSH
-headings in on top for the concepts MeSH covers well.
-
-## Quick start (window)
+## Quick start
 
 ```bash
 pip install -r requirements.txt
 python app.py
 ```
 
-A window opens with three steps:
+A window opens in your browser:
 
-1. **Directory pages** — paste the URL of every hospital-directory page you
-   want to search, separated by semicolons (`;`). *Provide a separate link
-   for every page of a directory:* if a directory lists its pulmonologists
-   across two pages, paste two URLs, one per page.
-2. **Disease config** — pick a JSON config (see `examples/`, or write your
-   own — [Adapting it to your specialty](#adapting-it-to-your-specialty)).
-3. **Email** — NCBI requires a contact email on every PubMed request.
+1. **Paste the directory URLs**, separated by semicolons (`;`). *You may
+   need a separate link for every page of a directory* — if there are two
+   pages of pulmonologists, provide a URL for each page.
+2. **Press Run.**
 
-Click Run. The app scrapes each page with [Firecrawl](https://firecrawl.dev),
-extracts the physicians into a roster CSV, profiles every one of them
-against PubMed, and writes the report + CSV to `output/`.
+That's the whole workflow. The app reads each page, works out which
+condition the directory covers, looks up every doctor on PubMed, and lists
+their topics. A results CSV with exact counts also lands in `output/`.
 
-Scraping needs a Firecrawl API key (free tier is fine). Put it in a `.env`
-file next to `app.py`:
+Scraping needs a [Firecrawl](https://firecrawl.dev) API key (the free tier
+is fine). Put it in a `.env` file next to `app.py`:
 
 ```
 FIRECRAWL_API_KEY=fc-your-key-here
-NCBI_API_KEY=optional-but-3x-faster
+NCBI_API_KEY=optional-but-makes-PubMed-3x-faster
 ```
 
-`.env` is gitignored — never commit keys.
+`.env` is gitignored — never commit keys. The app asks once for the email
+address PubMed requires on every request, then remembers it.
 
-You can also run the scraper headless, which just writes the roster CSV:
+Expect roughly 30 seconds per doctor without an NCBI API key, three times
+faster with one (free, from
+[NCBI account settings](https://www.ncbi.nlm.nih.gov/account/settings/)).
+
+## How it decides what counts as a topic
+
+The hard part is that no single source of topics is sufficient.
+
+**MeSH**, PubMed's controlled vocabulary, is excellent for procedures,
+populations, and established concepts — and useless for anything recent. New
+drugs wait years for a heading, and clinical phrases like "refractory
+disease" are not MeSH terms at all. A MeSH-only tool would report that
+nobody studies the newest therapies, which is false.
+
+So topics come from three places at once:
+
+1. **MeSH headings** on each paper, minus the ones too generic to be worth
+   printing (`Humans`, `Retrospective Studies`).
+2. **Chemical/substance tags**, which catch drugs that have no MeSH heading.
+3. **Drug-name morphology.** Drug names are strikingly regular — `-mab` is a
+   monoclonal antibody, `-nib` a kinase inhibitor, `-parib` a PARP
+   inhibitor. Matching those endings finds etrasimod and cenobamate the year
+   they are published, in any specialty, with no list to maintain.
+
+Drug names are only trusted in aggregate: a term appearing in one abstract
+is noise, the same term across nine papers is a topic. That is why the tool
+reads every doctor's papers before profiling anyone — the vocabulary is
+learned from the group's whole corpus.
+
+On top of that sits a small set of specialty-independent clinical concepts
+(*refractory*, *real-world data*, *disparities*, *treat-to-target*). Those
+describe how medicine is practiced rather than any one disease, so they
+apply equally to cardiology and oncology.
+
+The condition itself is detected from the directory page, then resolved
+against PubMed's MeSH database to pick up its synonyms — "epilepsy" also
+finds papers indexed only as "seizure disorder". When several pages
+disagree, the page listing the most doctors wins.
+
+## Running it without the window
+
+The scraper and the profiler are separate programs; either runs alone.
 
 ```bash
-python directory_scraper.py --urls "https://hosp.org/gi-docs;https://hosp.org/gi-docs?page=2" --out my_researchers.csv
+# directory URLs -> roster CSV
+python directory_scraper.py \
+    --urls "https://hosp.org/gi-docs;https://hosp.org/gi-docs?page=2" \
+    --out my_researchers.csv
+
+# roster CSV -> profiles (automatic vocabulary)
+python profiler.py --researchers my_researchers.csv --auto "ulcerative colitis"
 ```
 
-Physician names are converted to PubMed author form automatically
-(`Jordan E. Axelrad, MD` → `Axelrad J`). Skim the CSV before profiling —
-unusual compound surnames occasionally need a manual touch-up, and you can
-delete anyone you don't want profiled (the scrape includes surgeons,
-psychologists, etc. if the directory lists them).
+This is the path to take when you want to **edit the roster before
+profiling** — dropping the surgeons and psychologists a directory lists
+alongside the physicians, or fixing a name PubMed indexes unusually.
 
-### Scraping notes
+### Hand-written topic lists (optional)
 
-- **Hospital directories are JavaScript-heavy.** The scraper waits 8
-  seconds for the provider list to render, and automatically retries with a
-  20-second wait if a page comes back empty. A page that still yields
-  nothing usually hides its list behind a search button — link straight to
-  a results page instead.
-- **Two doctors can share an author string.** `Daniel Friedman` and
-  `David E. Friedman` are both `Friedman D`, and PubMed can't separate them
-  either. The scraper warns when this happens; add a middle initial in the
-  CSV (`Friedman DE`) to split them.
-- **Check the affiliation column.** It's used as a PubMed affiliation
-  filter, so it wants the health system (`NYU Langone`), not the clinic
-  (`Comprehensive Epilepsy Center`). The scraper writes several alternative
-  names joined by `|` so that authors indexed under any of them are found.
-
-## Quick start (command line, no scraping)
+For a curated vocabulary — a specific drug list, your own topic labels —
+pass a JSON config instead of `--auto`:
 
 ```bash
-pip install -r requirements.txt
-export NCBI_EMAIL="you@example.com"      # required by NCBI on every request
-export NCBI_API_KEY="..."                # optional; free, and 3x faster
-
-python profiler.py \
-    --config examples/ulcerative_colitis.json \
-    --researchers examples/researchers_uc.csv
+python profiler.py --config examples/ulcerative_colitis.json \
+                   --researchers examples/researchers_uc.csv
 ```
 
-The report prints to the terminal and a CSV with exact counts lands in
-`output/`. A run over ~40 researchers takes about 10 minutes without an API
-key, ~4 with one.
+Three worked examples ship in `examples/` (ulcerative colitis,
+triple-negative breast cancer, epilepsy). The keys are documented in
+[examples/ulcerative_colitis.json](examples/ulcerative_colitis.json). This
+is strictly optional; automatic mode needs none of it.
 
-Get a free API key at <https://www.ncbi.nlm.nih.gov/account/settings/>
-(NCBI account → Settings → API Key Management).
-
-### Google Colab
-
-```python
-!git clone https://github.com/YOURNAME/pubmed-profiler
-%cd pubmed-profiler
-!pip -q install -r requirements.txt
-!python profiler.py --config examples/ulcerative_colitis.json \
-                    --researchers examples/researchers_uc.csv \
-                    --email you@example.com
-```
-
-Download the CSV from `output/` via the folder icon in the left sidebar.
-
-## Adapting it to your specialty
-
-Everything disease-specific lives in two files. Copy the examples and edit.
-
-### 1. The config (JSON)
-
-| Key | What it does |
-|---|---|
-| `focus.label` | How the condition prints in the report |
-| `focus.mesh_terms` | Exact MeSH heading(s) for the condition — look them up at [meshb.nlm.nih.gov](https://meshb.nlm.nih.gov) |
-| `focus.text_terms` | Fallback phrases matched in titles/abstracts, for papers too new to have MeSH indexing yet |
-| `tracked_terms` | `"Display label": ["spelling", "variants", ...]` — the topics the report can see. Case-insensitive, whole-word. **This is the main lever.** Include brand and generic drug names, procedures, and clinical situations you care about. |
-| `extra_boring_mesh` | MeSH headings to suppress as topics (umbrella terms, sibling diseases) |
-| `min_focus_papers` | Researchers below this many on-condition papers are dropped |
-| `start_year`, `max_papers`, `topics_per_researcher`, `min_papers_per_topic`, `max_stars` | Tuning knobs; the example's defaults are sensible |
-
-Three worked examples ship in `examples/` — ulcerative colitis,
-triple-negative breast cancer, and epilepsy — spanning GI, oncology, and
-neurology. Copy whichever is closest to your specialty.
-
-A minimal cardiology config would look like:
-
-```json
-{
-  "focus": {
-    "label": "Heart failure",
-    "mesh_terms": ["Heart Failure"],
-    "text_terms": ["heart failure", "HFrEF", "HFpEF"]
-  },
-  "tracked_terms": {
-    "SGLT2 inhibitors": ["empagliflozin", "dapagliflozin", "sglt2"],
-    "Sacubitril/valsartan": ["sacubitril", "entresto"],
-    "Cardiac transplant": ["heart transplant", "cardiac transplantation"]
-  }
-}
-```
-
-### 2. The researcher list (CSV)
+### The roster CSV
 
 ```csv
 name,author,affiliation,notes
-Jordan Axelrad,Axelrad J,NYU,
+Jordan Axelrad,Axelrad J,NYU Langone|NYU|New York University,
 ```
 
-- `author` is the PubMed author-search form: `Surname Initials`.
-- `affiliation` is matched against PubMed's affiliation field; a distinctive
-  fragment ("Sinai", "Mayo") beats the full institution name. Beware of
-  fragments that match multiple institutions ("Sinai" also matches
-  Cedars-Sinai).
-- List **alternatives with `|`** when an institution publishes under several
-  names — `NYU Langone|NYU|New York University` matches any of them. This
-  matters more than it sounds: some NYU authors have 10 papers under
-  "New York University" and zero under "NYU Langone". The scraper fills
-  these in automatically.
-- `notes` (and any other extra column) is ignored by the program — use it
-  for your own bookkeeping.
-- If someone returns 0 papers, the affiliation string is the usual culprit:
-  physicians move, and some hospitals index under multiple names.
+- `author` is the PubMed author-search form: `Surname Initials`. Names are
+  converted automatically (`Jordan E. Axelrad, MD` → `Axelrad J`).
+- `affiliation` filters PubMed's affiliation field. List **alternatives with
+  `|`** — institutions publish under several names, and this matters more
+  than it sounds: some NYU authors have 10 papers under "New York
+  University" and zero under "NYU Langone". The scraper fills these in.
+- `notes` and any other extra column are ignored by the program.
 
-## Reading the results
+## Known limits
 
-- Topics are ranked by paper volume within that person's on-condition papers.
-- `*` = one first-author paper on that topic (`*x12` once it gets silly).
-- The CSV adds `share_of_their_focus_papers`, useful for spotting someone
-  whose niche *is* your topic versus someone who touched it twice.
-
-**Caveats:** author disambiguation is name+affiliation only, so common
-surnames can pick up strays. Topic matching is keyword-based — a paper
-*mentioning* a drug in the abstract counts toward it. Treat the output as a
-map for further reading, not a verdict.
+- **Author disambiguation is name + affiliation only.** Daniel Friedman and
+  David E. Friedman are both `Friedman D` at NYU, and PubMed cannot separate
+  them either — their profiles come back identical. The scraper warns when
+  it spots a collision; writing `Friedman DE` in the CSV splits them.
+- **Directories are JavaScript-heavy.** The scraper waits 8 seconds for the
+  provider list to render and retries at 20 seconds if a page comes back
+  empty. A page that still yields nothing usually hides its list behind a
+  search button — link straight to a results page.
+- **Topic matching is keyword-based.** A paper that merely *mentions* a drug
+  counts toward it.
+- **Publication volume is not clinical skill.** A doctor with no papers may
+  be the better clinician; this tool measures what someone researches, which
+  is a different question. Treat the output as a map for further reading,
+  not a verdict.
 
 ## License
 

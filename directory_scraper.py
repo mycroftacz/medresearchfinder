@@ -27,6 +27,7 @@ import re
 import sys
 import time
 import urllib.request
+from collections import Counter
 from urllib.error import HTTPError
 
 FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape"
@@ -41,6 +42,16 @@ EXTRACT_SCHEMA = {
                            "name -- e.g. 'NYU Langone', 'Mount Sinai', "
                            "'Mayo Clinic'. NOT the name of the individual "
                            "clinic, center, or department within it.",
+        },
+        "clinical_focus": {
+            "type": "string",
+            "description": "The single medical condition or disease this "
+                           "directory page is about, as a plain-English "
+                           "phrase a doctor would recognize -- e.g. "
+                           "'epilepsy', 'ulcerative colitis', 'heart "
+                           "failure'. If the page covers a broad specialty "
+                           "rather than one condition, name the specialty "
+                           "(e.g. 'pulmonology').",
         },
         "institution_aliases": {
             "type": "array",
@@ -75,7 +86,8 @@ EXTRACT_PROMPT = (
     "credentials and specialty if given. Use the person's name only, without "
     "titles like Dr. or credentials like MD. Also give the parent hospital, "
     "health system, or university the directory belongs to (e.g. 'NYU "
-    "Langone'), not the individual clinic or center name."
+    "Langone'), not the individual clinic or center name, and the single "
+    "medical condition the page is about."
 )
 
 CREDENTIAL_TOKENS = {
@@ -204,9 +216,12 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
                 seen_lower.add(alias.lower())
                 institution += f"|{alias}"
     physicians = extract.get("physicians") or []
+    clinical_focus = (extract.get("clinical_focus") or "").strip()
     log(f"    {len(physicians)} providers found"
-        + (f" ({institution})" if institution else ""))
-    return institution, physicians
+        + (f" ({institution.split('|')[0]}"
+           f"{', ' + clinical_focus if clinical_focus else ''})"
+           if institution else ""))
+    return institution, physicians, clinical_focus
 
 
 def to_author_form(full_name):
@@ -250,17 +265,21 @@ def to_author_form(full_name):
 def build_roster(urls, api_key, affiliation_override="", log=print):
     """Scrape every page URL and return de-duplicated CSV rows."""
     rows, seen = [], set()
+    focus_votes = Counter()
     for url in urls:
         log(f"Scraping {url} ...")
-        institution, physicians = scrape_page(url, api_key, log=log)
+        institution, physicians, clinical_focus = scrape_page(
+            url, api_key, log=log)
         if not physicians:
             # Slow directory: give the page a lot longer before giving up.
             log("    nothing found -- retrying with a longer page wait ...")
-            institution, physicians = scrape_page(
+            institution, physicians, clinical_focus = scrape_page(
                 url, api_key, log=log, wait_ms=20000)
         if not physicians:
             log(f"    WARNING: no providers on this page. If the directory "
                 f"needs a search click, link straight to a results page.")
+        if clinical_focus:
+            focus_votes[clinical_focus.lower()] += len(physicians) or 1
         affiliation = affiliation_override or institution or ""
         for person in physicians:
             name = (person.get("name") or "").strip()
@@ -290,7 +309,12 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
             log(f"    NOTE: {' and '.join(names)} both search PubMed as "
                 f"'{author}' -- their results will be mixed together. "
                 f"Add a middle initial in the CSV to separate them.")
-    return rows
+
+    # When pages disagree about what the directory covers, the page listing
+    # the most doctors wins; a stray "sleep medicine" sub-page shouldn't
+    # redefine an epilepsy center.
+    detected = focus_votes.most_common(1)[0][0] if focus_votes else ""
+    return rows, detected
 
 
 def write_roster(rows, out_path):
@@ -330,7 +354,9 @@ def main(argv=None):
     if not urls:
         raise SystemExit("No URLs given.")
 
-    rows = build_roster(urls, api_key, args.affiliation)
+    rows, detected = build_roster(urls, api_key, args.affiliation)
+    if detected:
+        print(f"\nDetected condition: {detected}")
     if not rows:
         raise SystemExit(
             "No providers extracted from any page. If the pages render "

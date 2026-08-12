@@ -14,10 +14,16 @@ marking papers where they were FIRST AUTHOR.
 One asterisk per first-author paper on that topic. First authorship usually
 means the work was theirs to drive rather than a name on a consortium paper.
 
-The tool is disease-agnostic: the focus condition, the vocabulary of tracked
-topics, and the list of people to profile all live in two editable files
-(a JSON config and a CSV of researchers). See examples/ for a complete,
-working ulcerative colitis setup you can copy for any other specialty.
+The tool is disease-agnostic and runs in either of two modes:
+
+  --auto "<condition>"   Nothing to write. The topic vocabulary is derived
+                         from the papers themselves (see auto_topics.py),
+                         and topics are ranked by what distinguishes each
+                         researcher from the rest of the group.
+
+  --config <file.json>   A hand-written vocabulary, for when you want
+                         specific drug groupings and your own topic labels.
+                         See examples/.
 
 WHY THIS READS ABSTRACTS, NOT JUST MeSH
 ---------------------------------------
@@ -30,8 +36,7 @@ concepts MeSH covers well.
 
 USAGE
 -----
-    python profiler.py --config examples/ulcerative_colitis.json \
-                       --researchers examples/researchers_uc.csv
+    python profiler.py --researchers my_doctors.csv --auto "heart failure"
 
 NCBI requires an email address on every request. Set it once:
 
@@ -64,6 +69,8 @@ except ImportError:
     import subprocess
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pandas"])
     import pandas as pd
+
+import auto_topics
 
 
 # MeSH headings too generic to be worth reporting, regardless of specialty.
@@ -252,10 +259,15 @@ def fetch_articles(pmids, surname, initials, focus, focus_patterns, pause):
                 str(h["DescriptorName"])
                 for h in citation.get("MeshHeadingList", [])
             ]
+            substances = [
+                str(c["NameOfSubstance"])
+                for c in citation.get("ChemicalList", [])
+            ]
             text = _text_of(citation)
             articles.append({
                 "pmid": str(citation["PMID"]),
                 "mesh": mesh,
+                "substances": substances,
                 "is_focus": _is_focus(mesh, text, focus, focus_patterns),
                 "text": text,
                 "first_author": _is_first_author(citation, surname, initials),
@@ -302,6 +314,188 @@ def stars(n, max_stars):
 
 def slugify(label):
     return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+
+
+def run_auto(condition, researchers, out_dir, log=print,
+             min_focus_papers=10, topics_per_researcher=12,
+             min_papers_per_topic=2, max_stars=5, start_year=2018,
+             max_papers=500):
+    """Profile without a config file: work the vocabulary out from the papers.
+
+    Two passes are unavoidable. Which drug names matter can only be judged
+    against the whole group's corpus -- a term appearing in one abstract is
+    noise, the same term in nine is a topic -- so every paper is fetched
+    first, then the vocabulary is learned, then people are profiled.
+    """
+    pause = 0.11 if Entrez.api_key else 0.35
+
+    focus = auto_topics.build_focus(condition, pause=pause)
+    log(f"Profiling for: {focus['label']}")
+    if len(focus["match_terms"]) > 1:
+        log(f"   (also counting {len(focus['match_terms']) - 1} synonyms "
+            f"PubMed indexes this under)")
+    log("")
+
+    # ---- pass 1: fetch everyone's papers --------------------------------
+    fetched = {}
+    excluded = []
+    for person in researchers:
+        name = person["name"]
+        surname = person["author"].split()[0]
+        initials = person["author"].split()[1] if " " in person["author"] else ""
+        log(f"Fetching {name} ...")
+        try:
+            pmids = find_paper_ids(person["author"], person["affiliation"],
+                                   start_year, max_papers, pause)
+            if not pmids:
+                log("    no papers found -- check name/affiliation spelling")
+                excluded.append((name, 0, "no papers found"))
+                continue
+            articles = fetch_articles(pmids, surname, initials,
+                                      {}, [], pause)
+            for article in articles:
+                article["is_focus"] = auto_topics.is_focus_paper(article, focus)
+            hits = [a for a in articles if a["is_focus"]]
+            n_first = sum(1 for a in hits if a["first_author"])
+            log(f"    {len(articles)} papers, {len(hits)} on "
+                f"{focus['label']} ({n_first} first-author)")
+            fetched[name] = articles
+        except SystemExit:
+            raise
+        except Exception as exc:
+            log(f"    ERROR: {exc}")
+            excluded.append((name, 0, f"error: {exc}"))
+
+    # ---- learn the vocabulary from the whole corpus ---------------------
+    corpus = [a for arts in fetched.values() for a in arts if a["is_focus"]]
+    if not corpus:
+        log("\nNo papers matched the condition. Nothing to profile.")
+        return None, []
+    vocabulary = auto_topics.discover_vocabulary(corpus, focus)
+    background = auto_topics.find_undiscriminating(corpus, vocabulary, focus)
+    log(f"\nLearned {len(vocabulary)} drug/substance terms from "
+        f"{len(corpus)} papers"
+        + (f"; set aside {len(background)} that nearly everyone publishes on."
+           if background else "."))
+
+    # ---- pass 2: profile ------------------------------------------------
+    # A 10-paper bar is right for a roster of academic leaders and wrong for
+    # a community practice, so drop it rather than hand back an empty
+    # report. Everything is already fetched; only the threshold changes.
+    for bar in (min_focus_papers, 5, 3, 1):
+        if bar > min_focus_papers:
+            continue
+        profiles, skipped = {}, []
+        for name, articles in fetched.items():
+            hits = [a for a in articles if a["is_focus"]]
+            if len(hits) < bar:
+                skipped.append((name, len(hits),
+                                f"under {bar} {focus['label']} papers"))
+                continue
+            total, first = Counter(), Counter()
+            for article in hits:
+                for topic in auto_topics.topics_for(article, vocabulary,
+                                                    focus, background):
+                    total[topic] += 1
+                    if article["first_author"]:
+                        first[topic] += 1
+            profiles[name] = {
+                "total": total, "first": first,
+                "focus_papers": len(hits),
+                "first_author_papers":
+                    sum(1 for a in hits if a["first_author"]),
+            }
+        if len(profiles) >= 3 or bar == 1:
+            if bar != min_focus_papers:
+                log(f"Few researchers cleared {min_focus_papers} papers -- "
+                    f"showing everyone with {bar}+ instead.")
+            min_focus_papers = bar
+            excluded.extend(skipped)
+            break
+
+    doc_freq = Counter()
+    for article in corpus:
+        for topic in auto_topics.topics_for(article, vocabulary, focus,
+                                            background):
+            doc_freq[topic] += 1
+
+    rows = _report(profiles, excluded, focus["label"], min_focus_papers,
+                   start_year, topics_per_researcher, min_papers_per_topic,
+                   max_stars, log, doc_freq=doc_freq,
+                   corpus_size=len(corpus))
+    out_csv = _write_csv(rows, focus["label"], out_dir)
+    log(f"\nSaved {out_csv}")
+    return out_csv, rows
+
+
+def _rank_topics(counts, doc_freq, corpus_size, min_papers_per_topic, limit):
+    """Order a researcher's topics by what makes them different.
+
+    Ranking by raw volume buries the finding you actually want: every
+    epilepsy doctor publishes on "Brain", so it outranks the cannabidiol
+    trials that are one person's life's work. Weighting each topic by how
+    rare it is across the whole group (the standard TF-IDF trick) keeps
+    volume mattering while letting a distinctive niche rise.
+    """
+    import math
+
+    scored = []
+    for topic, n in counts.items():
+        if n < min_papers_per_topic:
+            continue
+        rarity = math.log(corpus_size / max(doc_freq.get(topic, 1), 1)) + 1
+        scored.append((n * rarity, n, topic))
+    scored.sort(key=lambda t: (-t[0], -t[1], t[2]))
+    return [(topic, n) for _, n, topic in scored[:limit]]
+
+
+def _report(profiles, excluded, label, min_focus_papers, start_year,
+            topics_per_researcher, min_papers_per_topic, max_stars, log,
+            doc_freq=None, corpus_size=0):
+    log("\n" + "=" * 70)
+    log(f"RESEARCHERS WITH {min_focus_papers}+ {label.upper()} PAPERS "
+        f"SINCE {start_year}")
+    log("* = one first-author paper on that topic")
+    log("=" * 70)
+
+    rows = []
+    for name, data in sorted(profiles.items(),
+                             key=lambda kv: -kv[1]["focus_papers"]):
+        log(f"\n{name}   [{data['focus_papers']} {label} papers, "
+            f"{data['first_author_papers']} as first author]")
+        if doc_freq:
+            ranked = _rank_topics(data["total"], doc_freq, corpus_size,
+                                  min_papers_per_topic, topics_per_researcher)
+        else:
+            ranked = [(t, n) for t, n in data["total"].most_common()
+                      if n >= min_papers_per_topic][:topics_per_researcher]
+        if not ranked:
+            log("   -- no topic clears the threshold --")
+            continue
+        for topic, n in ranked:
+            n_first = data["first"][topic]
+            log(f"   {topic}{stars(n_first, max_stars)}")
+            rows.append({
+                "researcher": name, "topic": topic, "papers": n,
+                "first_author_papers": n_first,
+                "share_of_their_focus_papers":
+                    round(n / data["focus_papers"], 3),
+                "their_focus_papers": data["focus_papers"],
+            })
+
+    if excluded:
+        log("\n" + "-" * 70)
+        log("NOT ENOUGH PUBLISHED WORK TO PROFILE:")
+        for name, n_hits, why in sorted(excluded, key=lambda x: -x[1]):
+            log(f"   {name}  ({n_hits} {label} papers -- {why})")
+    return rows
+
+
+def _write_csv(rows, label, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    out_csv = os.path.join(out_dir, f"{slugify(label)}_topics_by_researcher.csv")
+    pd.DataFrame(rows).to_csv(out_csv, index=False)
+    return out_csv
 
 
 def run(cfg, researchers, out_dir):
@@ -418,9 +612,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Profile what each researcher publishes on, for any "
                     "condition, from PubMed titles/abstracts/MeSH.")
-    ap.add_argument("--config", required=True,
+    ap.add_argument("--config",
                     help="JSON config: focus condition, tracked terms, "
-                         "thresholds. See examples/.")
+                         "thresholds. See examples/. Omit to use --auto.")
+    ap.add_argument("--auto", metavar="CONDITION",
+                    help="Profile without a config: name the condition in "
+                         "plain English (e.g. --auto \"heart failure\") and "
+                         "the topic vocabulary is derived from the papers.")
     ap.add_argument("--researchers", required=True,
                     help="CSV with columns: name,author,affiliation")
     ap.add_argument("--email", default=os.environ.get("NCBI_EMAIL", ""),
@@ -442,9 +640,17 @@ def main(argv=None):
     if args.api_key:
         Entrez.api_key = args.api_key
 
-    cfg = load_config(args.config)
+    if not args.config and args.auto is None:
+        raise SystemExit(
+            "Give either --auto \"<condition>\" (vocabulary derived from the "
+            "papers) or --config <file.json> (hand-written vocabulary)."
+        )
+
     researchers = load_researchers(args.researchers)
-    run(cfg, researchers, args.out_dir)
+    if args.config:
+        run(load_config(args.config), researchers, args.out_dir)
+    else:
+        run_auto(args.auto, researchers, args.out_dir)
 
 
 if __name__ == "__main__":
