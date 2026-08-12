@@ -33,7 +33,50 @@ report that nobody studies the newest therapies, which is false. This tool
 matches your `tracked_terms` against titles and abstracts, then folds MeSH
 headings in on top for the concepts MeSH covers well.
 
-## Quick start
+## Quick start (window)
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+A window opens with three steps:
+
+1. **Directory pages** — paste the URL of every hospital-directory page you
+   want to search, separated by semicolons (`;`). *Provide a separate link
+   for every page of a directory:* if a directory lists its pulmonologists
+   across two pages, paste two URLs, one per page.
+2. **Disease config** — pick a JSON config (see `examples/`, or write your
+   own — [Adapting it to your specialty](#adapting-it-to-your-specialty)).
+3. **Email** — NCBI requires a contact email on every PubMed request.
+
+Click Run. The app scrapes each page with [Firecrawl](https://firecrawl.dev),
+extracts the physicians into a roster CSV, profiles every one of them
+against PubMed, and writes the report + CSV to `output/`.
+
+Scraping needs a Firecrawl API key (free tier is fine). Put it in a `.env`
+file next to `app.py`:
+
+```
+FIRECRAWL_API_KEY=fc-your-key-here
+NCBI_API_KEY=optional-but-3x-faster
+```
+
+`.env` is gitignored — never commit keys.
+
+You can also run the scraper headless, which just writes the roster CSV:
+
+```bash
+python directory_scraper.py --urls "https://hosp.org/gi-docs;https://hosp.org/gi-docs?page=2" --out my_researchers.csv
+```
+
+Physician names are converted to PubMed author form automatically
+(`Jordan E. Axelrad, MD` → `Axelrad J`). Skim the CSV before profiling —
+unusual compound surnames occasionally need a manual touch-up, and you can
+delete anyone you don't want profiled (the scrape includes surgeons,
+psychologists, etc. if the directory lists them).
+
+## Quick start (command line, no scraping)
 
 ```bash
 pip install -r requirements.txt
@@ -126,12 +169,6 @@ Jordan Axelrad,Axelrad J,NYU,
 surnames can pick up strays. Topic matching is keyword-based — a paper
 *mentioning* a drug in the abstract counts toward it. Treat the output as a
 map for further reading, not a verdict.
-
-## Roadmap
-
-- [ ] Firecrawl integration: paste the URLs of "find a doctor" /
-      faculty-directory pages and have the researcher CSV built
-      automatically, so the only manual input is a list of links.
 
 ## License
 
