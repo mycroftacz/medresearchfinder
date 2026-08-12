@@ -67,6 +67,21 @@ VALID_HOST_PATTERN = re.compile(
 EXTRACT_SCHEMA = {
     "type": "object",
     "properties": {
+        "organization_type": {
+            "type": "string",
+            "description": "What kind of organization this website belongs "
+                           "to, in two or three words -- for example "
+                           "'hospital', 'medical school', 'law firm', "
+                           "'university department', 'software company'.",
+        },
+        "people_profession": {
+            "type": "string",
+            "description": "The profession of the people listed on this "
+                           "page, as a single plain word or phrase: "
+                           "'physicians', 'lawyers', 'engineers', "
+                           "'professors', 'staff'. Report what they "
+                           "actually are, not what you expect them to be.",
+        },
         "institution": {
             "type": "string",
             "description": "The parent hospital, health system, or university "
@@ -104,33 +119,79 @@ EXTRACT_SCHEMA = {
                            "Langone: ['NYU', 'New York University']. Give 2-3 "
                            "distinct short forms, not the clinic name.",
         },
-        "physicians": {
+        "people": {
             "type": "array",
+            "description": "Everyone listed on the page, whatever their "
+                           "profession.",
             "items": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string",
                              "description": "Full name without credentials"},
-                    "credentials": {"type": "string",
-                                    "description": "e.g. MD, DO, MD PhD"},
-                    "specialty": {"type": "string"},
+                    "credentials": {
+                        "type": "string",
+                        "description": "Letters after the name exactly as "
+                                       "printed -- MD, DO, PhD, JD, Esq, "
+                                       "PE. Empty if none are shown.",
+                    },
+                    "specialty": {
+                        "type": "string",
+                        "description": "Their stated specialty, practice "
+                                       "area, or job title as printed.",
+                    },
                 },
                 "required": ["name"],
             },
         },
     },
-    "required": ["physicians"],
+    "required": ["people"],
 }
 
 EXTRACT_PROMPT = (
-    "This is a page from a hospital or medical-school directory of clinicians. "
-    "List every individual physician/provider shown on the page with their "
-    "credentials and specialty if given. Use the person's name only, without "
-    "titles like Dr. or credentials like MD. Also give the parent hospital, "
-    "health system, or university the directory belongs to (e.g. 'NYU "
-    "Langone'), not the individual clinic or center name, and the single "
-    "medical condition the page is about."
+    "Describe this web page factually. Do NOT assume it is medical: it may "
+    "be a law firm, a university department, a company, or anything else. "
+    "Report what kind of organization the site belongs to and what "
+    "profession the listed people actually practise. List every individual "
+    "person named on the page with their credentials and specialty or job "
+    "title exactly as printed. Give the person's name only, without titles "
+    "like Dr. or credentials like MD. Also give the parent organization "
+    "(e.g. 'NYU Langone'), not the individual clinic or department, and, "
+    "only if the page is about one specific medical condition, name that "
+    "condition."
 )
+
+# Letters that only a clinician carries. PhD and MPH are deliberately
+# absent: plenty of non-clinicians hold them.
+CLINICAL_CREDENTIALS = {
+    "md", "do", "mbbs", "mbchb", "mbbch", "dds", "dmd", "dpm", "dvm",
+    "pharmd", "np", "dnp", "pa", "pa-c", "rn", "aprn", "crna", "cnm",
+    "psyd", "od", "dc", "rd", "msn", "fnp", "anp", "pmhnp", "lcsw",
+}
+
+# Words that place a directory outside medicine. Checked against the
+# organization type, the stated profession, and people's job titles.
+NON_CLINICAL_MARKERS = {
+    "law", "lawyer", "lawyers", "attorney", "attorneys", "legal",
+    "solicitor", "barrister", "paralegal", "counsel", "litigation",
+    "engineer", "engineering", "architect", "architecture", "accountant",
+    "accounting", "auditor", "banker", "banking", "finance", "financial",
+    "insurance", "realtor", "estate", "software", "technology", "sales",
+    "marketing", "recruiting", "consultant", "consulting", "journalist",
+    "politician", "clergy", "veterinary",
+}
+
+# Words that mark a directory as medical even when nobody lists letters.
+CLINICAL_MARKERS = {
+    "hospital", "health", "healthcare", "medical", "medicine", "clinic",
+    "clinical", "physician", "physicians", "doctor", "doctors", "surgeon",
+    "surgeons", "surgery", "nurse", "nursing", "provider", "providers",
+    "practitioner", "psychiatry", "psychiatrist", "pediatric",
+    "pediatrics", "oncology", "cardiology", "neurology", "radiology",
+    "dermatology", "gastroenterology", "orthopedic", "orthopedics",
+    "anesthesiology", "pathology", "urology", "obstetrics", "gynecology",
+    "ophthalmology", "endocrinology", "rheumatology", "nephrology",
+    "pulmonology", "geriatrics", "epilepsy", "cancer", "cardiac",
+}
 
 CREDENTIAL_TOKENS = {
     "md", "do", "phd", "mbbs", "mph", "ms", "msc", "mba", "rn", "np", "pa",
@@ -271,19 +332,31 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
             if alias.lower() not in seen_lower:
                 seen_lower.add(alias.lower())
                 institution += f"|{alias}"
-    physicians = extract.get("physicians") or []
+    physicians = extract.get("people") or []
     clinical_focus = (extract.get("clinical_focus") or "").strip()
+    organization = (extract.get("organization_type") or "").strip()
+    profession = (extract.get("people_profession") or "").strip()
+
+    # Check the profession first: "this page lists lawyers" is a more
+    # useful thing to tell someone than "this page is not a directory".
+    verdict, what = looks_clinical(organization, profession, physicians)
+    if verdict:
+        log(f"    the people listed are not clinicians"
+            + (f" ({what})" if what else ""))
+        return institution, [], clinical_focus, verdict, what
+
     # A page can sit on a hospital domain, name a doctor or two, and still
     # not be a directory -- a hospital home page usually features one.
     # Believe the page's own purpose over the presence of a stray name.
     if extract.get("is_clinician_directory") is False:
-        log("    this page is not a doctor directory")
-        return institution, [], clinical_focus, "not_a_directory"
+        log("    this page is not a directory of clinicians")
+        return institution, [], clinical_focus, "not_a_directory", ""
+
     log(f"    {len(physicians)} providers found"
         + (f" ({institution.split('|')[0]}"
            f"{', ' + clinical_focus if clinical_focus else ''})"
            if institution else ""))
-    return institution, physicians, clinical_focus, ""
+    return institution, physicians, clinical_focus, "", ""
 
 
 def to_author_form(full_name):
@@ -331,22 +404,23 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
     rejected = []
     for url in urls:
         log(f"Scraping {url} ...")
-        institution, physicians, clinical_focus, verdict = scrape_page(
+        institution, physicians, clinical_focus, verdict, what = scrape_page(
             url, api_key, log=log)
 
-        if verdict != "not_a_directory" and not physicians:
+        if not verdict and not physicians:
             # Slow directory: give the page a lot longer before giving up.
             log("    nothing found -- retrying with a longer page wait ...")
-            institution, physicians, clinical_focus, verdict = scrape_page(
-                url, api_key, log=log, wait_ms=20000)
+            (institution, physicians, clinical_focus,
+             verdict, what) = scrape_page(url, api_key, log=log,
+                                          wait_ms=20000)
 
         if verdict:
-            rejected.append((url, verdict))
+            rejected.append((url, verdict, what))
             continue
         if not physicians:
             log(f"    WARNING: no providers on this page. If the directory "
                 f"needs a search click, link straight to a results page.")
-            rejected.append((url, "no_doctors"))
+            rejected.append((url, "no_doctors", ""))
         if clinical_focus:
             focus_votes[clinical_focus.lower()] += len(physicians) or 1
         affiliation = affiliation_override or institution or ""
@@ -426,6 +500,57 @@ def split_urls(raw):
 DIRECTORY_SUBDOMAINS = ("doctor", "doctors", "physician", "physicians",
                         "provider", "providers", "find", "findadoc",
                         "finddoctor", "faculty", "team", "ourdoctors")
+
+
+def _words(text):
+    return set(re.findall(r"[a-z][a-z-]+", (text or "").lower()))
+
+
+def looks_clinical(organization, profession, people):
+    """Are these actually clinicians? Returns (verdict, description).
+
+    The extractor is agreeable -- ask it for physicians and it will label
+    whoever it finds as physicians, lawyers included. So the answer is
+    decided here, from evidence the wording cannot bend: the letters after
+    people's names, and the words the page uses about itself.
+    """
+    described = _words(organization) | _words(profession)
+    titles = set()
+    for person in people:
+        titles |= _words(person.get("specialty", ""))
+
+    credentials = set()
+    for person in people:
+        for token in re.split(r"[,\s./]+", (person.get("credentials") or "")):
+            token = token.strip().lower()
+            if token:
+                credentials.add(token)
+
+    clinicians = sum(
+        1 for person in people
+        if any(t.strip().lower() in CLINICAL_CREDENTIALS
+               for t in re.split(r"[,\s./]+", person.get("credentials") or ""))
+    )
+
+    non_clinical = (described | titles) & NON_CLINICAL_MARKERS
+    clinical = (described | titles) & CLINICAL_MARKERS
+
+    # Letters after the name are the strongest evidence either way.
+    if clinicians and clinicians >= max(1, len(people) // 4):
+        return "", ""
+    if non_clinical and not clinical and not clinicians:
+        return "not_medical", (profession or organization or
+                               ", ".join(sorted(non_clinical)))
+    if clinical:
+        return "", ""
+    if credentials and not clinicians:
+        # Everyone has letters and none of them are clinical ones.
+        return "not_medical", (profession or organization or
+                               "people who are not clinicians")
+    if people and not clinical and not clinicians:
+        return "not_medical", (profession or organization or
+                               "people who are not clinicians")
+    return "", ""
 
 
 def is_site_root(url):
@@ -584,8 +709,9 @@ def main(argv=None):
     rows, detected, rejected = build_roster(urls, api_key, args.affiliation)
     if detected:
         print(f"\nDetected condition: {detected}")
-    for url, verdict in rejected:
-        print(f"Skipped {url}: {verdict.replace('_', ' ')}")
+    for url, verdict, what in rejected:
+        print(f"Skipped {url}: {verdict.replace('_', ' ')}"
+              + (f" ({what})" if what else ""))
     if not rows:
         raise SystemExit(
             "No providers extracted from any page. If the pages render "

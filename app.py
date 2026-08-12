@@ -414,9 +414,18 @@ def explain_rejections(rejected):
     if not rejected:
         return ["No doctors were found on those pages. " + TRY_AGAIN]
 
-    reasons = {verdict for _, verdict in rejected}
+    reasons = {verdict for _, verdict, _ in rejected}
     problems = []
 
+    if "not_medical" in reasons:
+        what = next((w for _, v, w in rejected if v == "not_medical" and w),
+                    "")
+        problems.append(
+            (f"That page lists {what}, not medical providers. "
+             if what else
+             "The people on that page are not medical providers. ")
+            + "This tool searches medical research, so it only works with "
+              "directories of doctors and other clinicians.")
     if "home_page" in reasons:
         problems.append(
             "That is the hospital's home page, not a list of doctors. "
@@ -453,7 +462,7 @@ def pipeline(run_id, urls, email):
         if rejected:
             # Some pages worked. Say which did not, but carry on with the
             # rest rather than throwing away a good search.
-            log("Skipped: " + ", ".join(url for url, _ in rejected))
+            log("Skipped: " + ", ".join(url for url, _, _ in rejected))
 
         out_dir = os.path.join(HERE, "output")
         os.makedirs(out_dir, exist_ok=True)
