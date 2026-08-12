@@ -53,6 +53,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 from collections import Counter
 from urllib.error import HTTPError
 
@@ -176,6 +177,21 @@ def compile_patterns(tracked_terms):
     }
 
 
+def build_query(author, affiliation, start_year):
+    """The exact PubMed query used, so a person can check it themselves."""
+    variants = [a.strip() for a in affiliation.split("|") if a.strip()]
+    if len(variants) > 1:
+        clause = "(" + " OR ".join(f"{v}[Affiliation]" for v in variants) + ")"
+    else:
+        clause = f"{variants[0]}[Affiliation]" if variants else ""
+    return (f'{author}[Author] AND {clause} '
+            f'AND ("{start_year}"[PDAT] : "3000"[PDAT])')
+
+
+def pubmed_url(query):
+    return "https://pubmed.ncbi.nlm.nih.gov/?term=" + urllib.parse.quote(query)
+
+
 def find_paper_ids(author, affiliation, start_year, max_papers, pause):
     """Search PubMed for one author's PMIDs.
 
@@ -183,17 +199,7 @@ def find_paper_ids(author, affiliation, start_year, max_papers, pause):
     indexed inconsistently -- the same NYU author appears under "NYU
     Langone", "NYU", and "New York University" -- so any of them counts.
     """
-    variants = [a.strip() for a in affiliation.split("|") if a.strip()]
-    if len(variants) > 1:
-        affiliation_clause = "(" + " OR ".join(
-            f"{v}[Affiliation]" for v in variants) + ")"
-    else:
-        affiliation_clause = f"{variants[0]}[Affiliation]" if variants else ""
-
-    query = (
-        f'{author}[Author] AND {affiliation_clause} '
-        f'AND ("{start_year}"[PDAT] : "3000"[PDAT])'
-    )
+    query = build_query(author, affiliation, start_year)
     try:
         handle = Entrez.esearch(db="pubmed", term=query, retmax=max_papers)
         result = Entrez.read(handle)
@@ -336,13 +342,17 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
 
     focus = auto_topics.build_focus(condition, pause=pause)
     log(f"Profiling for: {focus['label']}")
-    if len(focus["match_terms"]) > 1:
+    if focus.get("is_discipline"):
+        log("   (a specialty rather than one condition, so all of each "
+            "doctor's research counts)")
+    elif len(focus["match_terms"]) > 1:
         log(f"   (also counting {len(focus['match_terms']) - 1} synonyms "
             f"PubMed indexes this under)")
     log("")
 
     # ---- pass 1: fetch everyone's papers --------------------------------
     fetched = {}
+    queries = {}
     excluded = []
     for index, person in enumerate(researchers):
         if on_progress:
@@ -367,6 +377,8 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
             log(f"    {len(articles)} papers, {len(hits)} on "
                 f"{focus['label']} ({n_first} first-author)")
             fetched[name] = articles
+            queries[name] = build_query(person["author"],
+                                        person["affiliation"], start_year)
         except SystemExit:
             raise
         except Exception as exc:
@@ -419,6 +431,7 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
                 "focus_papers": len(hits),
                 "first_author_papers":
                     sum(1 for a in hits if a["first_author"]),
+                "verify": pubmed_url(queries.get(name, "")),
             }
         if len(profiles) >= 3 or bar == MIN_PROFILE_PAPERS:
             if bar != min_focus_papers:
@@ -508,6 +521,7 @@ def _report(profiles, excluded, label, min_focus_papers, start_year,
                 "share_of_their_focus_papers":
                     round(n / data["focus_papers"], 3),
                 "their_focus_papers": data["focus_papers"],
+                "verify_on_pubmed": data.get("verify", ""),
             })
 
     if excluded:

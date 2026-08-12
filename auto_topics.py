@@ -226,6 +226,29 @@ def lookup_mesh(condition, pause=0.35):
     return best[0], best
 
 
+# Endings that mark a medical discipline rather than a disease.
+DISCIPLINE_SUFFIXES = ("ology", "ologies", "iatry", "iatrics", "surgery",
+                       "therapy", "medicine")
+DISCIPLINE_WORDS = {"medicine", "surgery", "care", "health", "practice",
+                    "specialty", "specialties", "department"}
+
+
+def is_discipline(name):
+    """Is this a field of practice rather than something patients have?
+
+    It matters because PubMed indexes papers by the condition studied, not
+    by the specialty of whoever wrote them: an ear surgeon's papers are
+    tagged 'Laryngeal Neoplasms' or 'Sleep Apnea', never 'Otolaryngology'.
+    Filtering an ENT roster by 'Otolaryngology' therefore discards nearly
+    every real paper and reports working researchers as unpublished.
+    """
+    words = re.findall(r"[a-z]+", (name or "").lower())
+    if not words:
+        return False
+    return any(w.endswith(DISCIPLINE_SUFFIXES) or w in DISCIPLINE_WORDS
+               for w in words)
+
+
 def build_focus(condition, pause=0.35):
     """Everything needed to decide whether a paper is 'on topic'.
 
@@ -236,8 +259,20 @@ def build_focus(condition, pause=0.35):
     enumerating it.
     """
     condition = (condition or "").strip()
+
+    # A whole specialty is not a filter. The roster already came from that
+    # specialty's directory, so filtering their papers by it again only
+    # throws away the research we were asked to find.
+    if is_discipline(condition):
+        return {"label": condition.title(), "match_terms": [], "stems": set(),
+                "patterns": [], "is_discipline": True}
+
     label, synonyms = lookup_mesh(condition, pause=pause) if condition \
         else (None, [])
+
+    if label and is_discipline(label):
+        return {"label": label, "match_terms": [], "stems": set(),
+                "patterns": [], "is_discipline": True}
 
     if not label:
         label = condition.title() if condition else "All research"
@@ -265,6 +300,7 @@ def build_focus(condition, pause=0.35):
         "stems": stems,
         "patterns": [re.compile(r"\b" + re.escape(t) + r"\b", re.I)
                      for t in match_terms],
+        "is_discipline": False,
     }
 
 

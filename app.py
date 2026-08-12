@@ -23,6 +23,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
+import auto_topics
 import directory_scraper
 import profiler
 
@@ -43,10 +44,14 @@ def new_run():
     with LOCK:
         _RUN_SEQ += 1
         run_id = f"run{_RUN_SEQ}"
+        # "progress" is transient and must never outlive the run;
+        # "note" is a finished message meant to be read afterwards.
+        # One field serving both left a stale "do not refresh" on screen
+        # after a completed search, which read as a hang.
         RUNS[run_id] = {"lines": [], "done": False, "results": [],
-                        "note": "", "doctors": [], "csv": "",
-                        "condition": "", "problems": [], "detail": "",
-                        "thin": []}
+                        "progress": "", "note": "", "doctors": [],
+                        "csv": "", "condition": "", "problems": [],
+                        "detail": "", "thin": [], "broad": False}
         # Keep the history short; these hold every paper's worth of log.
         for stale in list(RUNS)[:-5]:
             RUNS.pop(stale, None)
@@ -118,6 +123,11 @@ PAGE = """<!DOCTYPE html>
   #thin {{ margin-top: 2rem; }}
   #thin ul {{ padding-left: 1.2rem; }}
   .caution-inline {{ color: #92400e; font-size: .85rem; margin: 0 0 .4rem; }}
+  .verify {{ font-size: .82rem; color: #666; margin: .4rem 0 0; }}
+  .verify a {{ color: #1d4ed8; }}
+  .samename {{ background: #fff8e1; border: 1px solid #e6d9a8;
+               border-radius: 6px; padding: .6rem .8rem; font-size: .9rem;
+               margin: 0 0 1.2rem; }}
   #searched {{ margin-top: 2rem; }}
   .plain {{ font-size: .93rem; color: #333; line-height: 1.7; }}
   .limit {{ color: #6b5b1f; font-size: .88rem; }}
@@ -312,9 +322,15 @@ function render(results) {{
     }}).join('');
     const caution = doc.caution
       ? '<p class="caution-inline">' + esc(doc.caution) + '</p>' : '';
+    // PubMed cannot tell two people with the same surname and initial
+    // apart, so every profile carries the search behind it.
+    const verify = doc.verify
+      ? '<p class="verify"><a href="' + esc(doc.verify) + '" target="_blank" ' +
+        'rel="noopener">See these papers on PubMed</a> — check they are the ' +
+        'right person</p>' : '';
     return '<div class="doc"><h3>' + esc(doc.name) + '</h3>' +
            '<p class="meta">' + esc(doc.meta) + '</p>' + caution +
-           '<ul>' + topics + '</ul></div>';
+           '<ul>' + topics + '</ul>' + verify + '</div>';
   }}).join('');
 }}
 async function poll() {{
@@ -338,18 +354,14 @@ async function poll() {{
     return;
   }}
 
-  if (!data.done) {{
-    document.getElementById('note').innerHTML =
-      '<p class="note">' + esc(data.note ||
-        'Gathering data, do not refresh this page, ' +
-        'this may take a few minutes :)') + '</p>';
-  }} else {{
-    // Finished: the running note goes away, but a message that explains
-    // an empty result (no doctors found, an error) has to stay.
-    document.getElementById('note').innerHTML =
-      (data.results && data.results.length) || !data.note
-        ? '' : '<p class="note">' + esc(data.note) + '</p>';
-  }}
+  // While running, show progress; once finished, show only the finished
+  // message. Progress text must never survive completion -- a leftover
+  // "do not refresh" on a finished search looks exactly like a hang.
+  const message = data.done ? data.note : (data.progress || data.note ||
+      'Gathering data, do not refresh this page, this may take a few ' +
+      'minutes :)');
+  document.getElementById('note').innerHTML =
+    message ? '<p class="note">' + esc(message) + '</p>' : '';
 
   if (data.results && data.results.length) {{
     // Name the condition on screen: if it guessed wrong from the pages,
@@ -357,8 +369,18 @@ async function poll() {{
     const banner = data.condition
       ? '<p class="detected">Showing research on <b>' + esc(data.condition) +
         '</b>, detected from the pages you entered.</p>' : '';
+    // A whole-specialty search has no disease to filter on, so a colleague
+    // with the same surname and initial can be mistaken for the doctor.
+    const warn = data.broad
+      ? '<p class="samename"><b>Check these are the right people.</b> This ' +
+        'page covers a whole specialty rather than one condition, so ' +
+        'nothing narrows the search except the name and hospital. Doctors ' +
+        'who share a surname and first initial with a colleague can have ' +
+        'their research mixed together. Use the PubMed link under each ' +
+        'person to confirm.</p>' : '';
     document.getElementById('results').innerHTML =
-      '<h2>Most prominent researchers</h2>' + banner + render(data.results);
+      '<h2>Most prominent researchers</h2>' + banner + warn +
+      render(data.results);
   }}
 
   if (data.done && data.thin && data.thin.length) {{
@@ -531,7 +553,7 @@ def pipeline(run_id, urls, email):
             Entrez.api_key = os.environ["NCBI_API_KEY"]
 
         api_key = directory_scraper.get_api_key()
-        set_field(run_id, note=f"Reading {len(urls)} directory page(s)...")
+        set_field(run_id, progress=f"Reading {len(urls)} directory page(s)...")
         log(f"Reading {len(urls)} directory page(s) ...")
         rows, detected, rejected = directory_scraper.build_roster(
             urls, api_key, log=log)
@@ -555,13 +577,16 @@ def pipeline(run_id, urls, email):
         set_field(run_id, doctors=[r["name"] for r in researchers])
 
         def progress(done, total):
-            set_field(run_id, note=f"Gathering data — searched {done} of "
-                                   f"{total} doctors. Do not refresh this "
-                                   f"page, this may take a few minutes :)")
+            set_field(run_id,
+                      progress=f"Gathering data — searched {done} of "
+                               f"{total} doctors. Do not refresh this "
+                               f"page, this may take a few minutes :)")
 
         csv_path, result_rows, thin = profiler.run_auto(
             detected, researchers, out_dir, log=log, on_progress=progress)
-        set_field(run_id, condition=detected, csv=csv_path or "", thin=thin)
+        set_field(run_id, condition=detected, csv=csv_path or "",
+                  thin=thin,
+                  broad=auto_topics.is_discipline(detected))
 
         # Reshape the flat CSV rows into per-doctor blocks for the page.
         by_doctor = {}
@@ -570,8 +595,10 @@ def pipeline(run_id, urls, email):
                 "name": row["researcher"],
                 "meta": f"{row['their_focus_papers']} papers",
                 "caution": "",
+                "verify": "",
                 "topics": [],
             })
+            entry["verify"] = row.get("verify_on_pubmed", "")
             if row["their_focus_papers"] < profiler.MIN_PROFILE_PAPERS * 2:
                 entry["caution"] = ("Based on few papers — read this as a "
                                     "hint, not a picture of their work.")
@@ -581,9 +608,23 @@ def pipeline(run_id, urls, email):
                          if row["first_author_papers"] <= 5
                          else f"*x{row['first_author_papers']}",
             })
+        # Finishing with nobody profiled is a legitimate outcome, not a
+        # failure -- say so, or the empty page reads as a broken search.
+        if not by_doctor:
+            summary = (f"Finished. Searched {len(researchers)} "
+                       f"{'doctor' if len(researchers) == 1 else 'doctors'}; "
+                       f"none has enough published research to profile.")
+            if thin:
+                summary += " Their paper counts are listed below."
+        else:
+            summary = (f"Finished. {len(by_doctor)} of {len(researchers)} "
+                       f"doctors had enough published research to profile.")
+
         with LOCK:
             if run_id in RUNS:
                 RUNS[run_id]["results"] = list(by_doctor.values())
+                RUNS[run_id]["note"] = summary
+                RUNS[run_id]["progress"] = ""
 
     except BaseException as exc:                    # SystemExit included
         log(f"ERROR: {exc}")
@@ -593,6 +634,7 @@ def pipeline(run_id, urls, email):
         with LOCK:
             if run_id in RUNS:
                 RUNS[run_id]["done"] = True
+                RUNS[run_id]["progress"] = ""     # never outlives the run
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -619,14 +661,16 @@ class Handler(BaseHTTPRequestHandler):
                             "results": list(run["results"]),
                             "condition": run.get("condition", ""),
                             "note": run.get("note", ""),
+                            "progress": run.get("progress", ""),
                             "problems": list(run.get("problems", [])),
                             "detail": run.get("detail", ""),
                             "thin": list(run.get("thin", [])),
+                            "broad": run.get("broad", False),
                             "doctors": list(run.get("doctors", [])),
                             "csv": run.get("csv", "")} if run else
                            {"done": True, "results": [], "doctors": [],
                             "csv": "", "condition": "", "problems": [],
-                            "detail": "", "thin": [],
+                            "detail": "", "thin": [], "progress": "", "broad": False,
                             "note": "This run is no longer available. "
                                     "Press Run to start a new one."})
             self._send(json.dumps(payload), "application/json")
