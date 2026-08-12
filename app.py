@@ -18,6 +18,7 @@ import html
 import json
 import os
 import re
+import secrets
 import threading
 import urllib.error
 import webbrowser
@@ -39,12 +40,19 @@ LOCK = threading.Lock()
 _RUN_SEQ = 0
 MAX_ACTIVE_RUNS = 1
 
+# This server listens on localhost, which does NOT mean only this page can
+# reach it: any site open in the browser can post a form to 127.0.0.1 and
+# have the browser send it. Without a check, a page you happened to visit
+# could start searches on your Firecrawl credits and rewrite your stored
+# email. Requests must carry a token that only the page we served knows.
+SESSION_TOKEN = secrets.token_urlsafe(32)
+
 
 def new_run():
     global _RUN_SEQ
     with LOCK:
         _RUN_SEQ += 1
-        run_id = f"run{_RUN_SEQ}"
+        run_id = f"r{_RUN_SEQ}-{secrets.token_urlsafe(9)}"
         # "progress" is transient and must never outlive the run;
         # "note" is a finished message meant to be read afterwards.
         # One field serving both left a stale "do not refresh" on screen
@@ -306,6 +314,7 @@ hospital or medical school page listing doctors by name.</span></div>
 <div id="searched"></div>
 
 <script>
+const TOKEN = "{token}";
 let RUN_ID = null;
 let ANNOUNCED = false;   // scroll to the results only once per run
 
@@ -333,6 +342,7 @@ async function start() {{
   const body = new URLSearchParams({{
     urls: document.getElementById('urls').value,
     email: (document.getElementById('email')||{{value:''}}).value,
+    token: TOKEN,
   }});
   document.getElementById('run').disabled = true;
   document.getElementById('results').innerHTML = '';
@@ -349,7 +359,8 @@ async function start() {{
   poll();
 }}
 function esc(s) {{
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }}
 function render(results) {{
   if (!results.length) return '';
@@ -495,6 +506,7 @@ def render_page():
         email=html.escape(email),
         email_display="display:none" if email else "",
         max_urls=directory_scraper.MAX_URLS,
+        token=SESSION_TOKEN,
     )
 
 
@@ -745,12 +757,32 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send("not found", code=404)
 
+    def _own_page(self):
+        """Reject anything not coming from the page this server served.
+
+        A browser will happily post a form from any site to localhost, and
+        a stale DNS name can resolve here too, so both the token and the
+        Host header are checked.
+        """
+        host = (self.headers.get("Host") or "").split(":")[0]
+        return host in ("127.0.0.1", "localhost", "[::1]", "::1")
+
     def do_POST(self):
         if self.path != "/run":
             self._send("not found", code=404)
             return
-        length = int(self.headers.get("Content-Length", 0))
-        form = parse_qs(self.rfile.read(length).decode())
+        if not self._own_page():
+            self._send(json.dumps({"ok": False}), "application/json", 403)
+            return
+        length = min(int(self.headers.get("Content-Length", 0) or 0), 200_000)
+        form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+
+        if not secrets.compare_digest(form.get("token", [""])[0],
+                                      SESSION_TOKEN):
+            # Not from our page: silently refuse rather than start work.
+            self._send(json.dumps({"ok": False}), "application/json", 403)
+            return
+
         raw_urls = form.get("urls", [""])[0].strip()
         email = (form.get("email", [""])[0].strip()
                  or os.environ.get("NCBI_EMAIL", ""))

@@ -358,9 +358,19 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
     page = data.get("data") or {}
     extract = page.get("extract") or {}
     page_chars = len(page.get("markdown") or "")
-    institution = (extract.get("institution") or "").strip()
-    aliases = [a.strip() for a in (extract.get("institution_aliases") or [])
-               if a and a.strip()]
+    if not isinstance(extract, dict):
+        extract = {}
+
+    # "|" separates affiliation alternatives downstream, so it must not
+    # survive inside one of them.
+    institution = _as_text(extract.get("institution"), 120).replace("|", " ")
+    institution = institution.strip()
+    raw_aliases = extract.get("institution_aliases")
+    if not isinstance(raw_aliases, list):
+        raw_aliases = [raw_aliases] if raw_aliases else []
+    aliases = [a for a in (_as_text(x, 120).replace("|", " ").strip()
+                           for x in raw_aliases[:6]) if a]
+
     # PubMed indexes one institution under several names, so search them all.
     if institution:
         seen_lower = {institution.lower()}
@@ -368,10 +378,11 @@ def scrape_page(url, api_key, log=print, wait_ms=8000):
             if alias.lower() not in seen_lower:
                 seen_lower.add(alias.lower())
                 institution += f"|{alias}"
-    physicians = extract.get("people") or []
-    clinical_focus = (extract.get("clinical_focus") or "").strip()
-    organization = (extract.get("organization_type") or "").strip()
-    profession = (extract.get("people_profession") or "").strip()
+
+    physicians = _normalize_people(extract.get("people"))
+    clinical_focus = _as_text(extract.get("clinical_focus"), 80).strip()
+    organization = _as_text(extract.get("organization_type"), 80).strip()
+    profession = _as_text(extract.get("people_profession"), 80).strip()
 
     # Drop anything that is plainly a department rather than a person. A
     # page that is mostly departments is a directory's front counter --
@@ -648,6 +659,43 @@ def looks_like_person_name(name):
     if all(bare in WEAK_LABEL_WORDS for bare in bare_tokens):
         return False
     return True
+
+
+def _as_text(value, limit=300):
+    """Coerce whatever the extractor returned into a plain short string.
+
+    The schema asks for strings, but the answer is derived from a page
+    someone else controls, and it does arrive as a number, a list or a
+    dict often enough to matter. Every one of those crashed the run.
+    """
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, (str, int, float)):
+        return str(value)[:limit]
+    if isinstance(value, (list, tuple)):
+        return " ".join(_as_text(v, limit) for v in value[:5])[:limit]
+    if isinstance(value, dict):
+        return " ".join(_as_text(v, limit)
+                        for v in list(value.values())[:5])[:limit]
+    return ""
+
+
+def _normalize_people(raw):
+    """One clean {name, credentials, specialty} dict per usable entry."""
+    if not isinstance(raw, list):
+        return []
+    people = []
+    for item in raw[:MAX_DOCTORS * 5]:
+        if not isinstance(item, dict):
+            continue
+        name = _as_text(item.get("name"), 120).strip()
+        if name:
+            people.append({
+                "name": name,
+                "credentials": _as_text(item.get("credentials"), 60),
+                "specialty": _as_text(item.get("specialty"), 120),
+            })
+    return people
 
 
 def _words(text):
