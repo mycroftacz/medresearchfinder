@@ -184,9 +184,6 @@ PAGE = """<!DOCTYPE html>
   .doc li {{ margin: .12rem 0; }}
   .stars {{ color: #b45309; letter-spacing: 1px; }}
   .thin {{ color: #666; font-size: .9rem; }}
-  .detected {{ background: #eef2ff; border: 1px solid #c7d2fe;
-               border-radius: 6px; padding: .55rem .8rem; font-size: .93rem;
-               margin: 0 0 1.2rem; }}
   .intro {{ border-left: 3px solid #d4d4d8; padding-left: .9rem;
             margin: 1rem 0 1.6rem; }}
   .intro p {{ margin: .5rem 0; }}
@@ -429,11 +426,10 @@ async function poll() {{
               (data.done ? '&#10003; ' : '') + esc(message) + '</p>' : '';
 
   if (data.results && data.results.length) {{
-    // Name the condition on screen: if it guessed wrong from the pages,
-    // that should be obvious before anyone reads the topics.
-    const banner = data.condition
-      ? '<p class="detected">Showing research on <b>' + esc(data.condition) +
-        '</b>, detected from the pages you entered.</p>' : '';
+    // Deliberately no condition banner: it named a single specialty even
+    // when the search spanned several, which read as an error in an
+    // otherwise correct report. The condition is still visible in the
+    // results filename and the progress log.
     // A whole-specialty search has no disease to filter on, so a colleague
     // with the same surname and initial can be mistaken for the doctor.
     const warn = data.broad
@@ -444,8 +440,7 @@ async function poll() {{
         'their research mixed together. Use the PubMed link under each ' +
         'person to confirm.</p>' : '';
     document.getElementById('results').innerHTML =
-      '<h2>Most prominent researchers</h2>' + banner + warn +
-      render(data.results);
+      '<h2>Most prominent researchers</h2>' + warn + render(data.results);
   }}
 
   if (data.done && data.thin && data.thin.length) {{

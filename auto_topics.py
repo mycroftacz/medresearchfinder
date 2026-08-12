@@ -260,6 +260,14 @@ def build_focus(condition, pause=0.35):
     """
     condition = (condition or "").strip()
 
+    # No condition at all means exactly that: count everything. Falling
+    # through built a filter out of the words of the placeholder label
+    # itself ("All research" -> match papers mentioning research), which
+    # excluded every paper instead of none.
+    if not condition:
+        return {"label": "All research", "match_terms": [], "stems": set(),
+                "patterns": [], "is_discipline": False}
+
     # A whole specialty is not a filter. The roster already came from that
     # specialty's directory, so filtering their papers by it again only
     # throws away the research we were asked to find.

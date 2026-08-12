@@ -326,7 +326,26 @@ def test_focus():
     check("geography suppressed",
           at.topics_for({"text": "", "mesh": ["Sweden"], "substances": []},
                         {}, focus), set())
-    print("  5 specialties, 4 diseases, topic suppression")
+
+    # Mixing specialties leaves no single condition to filter by. A blank
+    # condition must count every paper -- it once built a filter out of
+    # the words of its own placeholder label ("All research" matching
+    # papers about research), which excluded everybody instead of nobody.
+    blank = at.build_focus("")
+    check("blank condition has no filter",
+          bool(blank["match_terms"] or blank["stems"]), False)
+    for mesh in (["Sinusitis"], ["Arthroplasty"], ["Epilepsy"]):
+        check(f"blank condition counts {mesh[0]}",
+              at.is_focus_paper({"text": "", "mesh": mesh, "substances": []},
+                                blank), True)
+
+    # A real condition must still exclude unrelated work.
+    epilepsy = at.build_focus("epilepsy")
+    check("epilepsy focus excludes orthopaedics",
+          at.is_focus_paper({"text": "hip arthroplasty",
+                             "mesh": ["Arthroplasty"], "substances": []},
+                            epilepsy), False)
+    print("  5 specialties, 4 diseases, suppression, mixed-specialty case")
 
 
 def test_rosters():

@@ -550,7 +550,20 @@ def build_roster(urls, api_key, affiliation_override="", log=print):
             f"batch risks being blocked partway through.")
         rows = rows[:MAX_DOCTORS]
 
-    detected = focus_votes.most_common(1)[0][0] if focus_votes else ""
+    # When the pages cover different specialties, there is no single
+    # condition to filter by. Picking the most popular one and applying it
+    # to everybody silently zeroes out the other specialty: filter an ENT
+    # roster by "hip and knee replacement" and none of them has published
+    # anything. Better to profile all their research than to hide half of
+    # it, so a split vote yields no condition at all.
+    detected = ""
+    if focus_votes:
+        winner, votes = focus_votes.most_common(1)[0]
+        if votes >= 0.6 * sum(focus_votes.values()):
+            detected = winner
+        else:
+            log("    pages cover different specialties -- profiling all of "
+                "each doctor's research rather than filtering by one")
     return rows, detected, rejected
 
 
