@@ -41,7 +41,9 @@ def new_run():
     with LOCK:
         _RUN_SEQ += 1
         run_id = f"run{_RUN_SEQ}"
-        RUNS[run_id] = {"lines": [], "done": False, "results": []}
+        RUNS[run_id] = {"lines": [], "done": False, "results": [],
+                        "note": "", "doctors": [], "csv": "",
+                        "condition": ""}
         # Keep the history short; these hold every paper's worth of log.
         for stale in list(RUNS)[:-5]:
             RUNS.pop(stale, None)
@@ -55,6 +57,13 @@ def make_logger(run_id):
             if run is not None:
                 run["lines"].append(" ".join(str(p) for p in parts))
     return log
+
+
+def set_field(run_id, **fields):
+    with LOCK:
+        run = RUNS.get(run_id)
+        if run is not None:
+            run.update(fields)
 
 
 def remember_email(email):
@@ -98,11 +107,13 @@ PAGE = """<!DOCTYPE html>
            background: #1d4ed8; color: #fff; border: 0; border-radius: 6px;
            cursor: pointer; }}
   button:disabled {{ background: #93a6d8; cursor: default; }}
-  #status {{ color: #555; font-size: .88rem; margin-top: .8rem;
-             white-space: pre-wrap; font-family: ui-monospace, monospace;
-             max-height: 11rem; overflow-y: auto; background: #f6f6f6;
-             border-radius: 6px; padding: .6rem; display: none; }}
+  .note {{ background: #f6f6f6; border-radius: 6px; padding: .7rem .9rem;
+           color: #444; font-size: .93rem; margin: 1.2rem 0 0; }}
   #results {{ margin-top: 1.5rem; }}
+  #results h2, #searched h2 {{ border-bottom: 2px solid #1a1a1a;
+                               padding-bottom: .25rem; }}
+  #searched {{ margin-top: 2rem; }}
+  .plain {{ font-size: .93rem; color: #333; line-height: 1.7; }}
   .doc {{ margin-bottom: 1.4rem; padding-bottom: 1rem;
           border-bottom: 1px solid #eee; }}
   .doc h3 {{ margin: 0 0 .1rem; font-size: 1.08rem; }}
@@ -141,6 +152,11 @@ PAGE = """<!DOCTYPE html>
   there is nothing to choose or configure. A search takes roughly half a
   minute per doctor, so a directory page of twenty runs about ten
   minutes.</p>
+  <p>The results appear below as <b>Most prominent researchers</b>. A
+  complete spreadsheet &mdash; every doctor, every subject, with exact
+  paper counts &mdash; is also saved to the <code>output</code> folder
+  next to this program, and the full path is printed at the bottom of the
+  page when the search finishes.</p>
 </div>
 
 <h2>Step 1 &mdash; Directory pages</h2>
@@ -191,11 +207,33 @@ pulmonologists, provide a URL for each page.</div>
   a starting point for conversation, not a verdict.</p>
 </div>
 
-<div id="status"></div>
+<div id="note"></div>
 <div id="results"></div>
+<div id="searched"></div>
 
 <script>
 let RUN_ID = null;
+
+// The page tells people not to refresh, but a ten-minute search should not
+// be lost to a stray reload: the run lives on the server, so remember its
+// id and reattach on load.
+function rememberRun(id) {{
+  RUN_ID = id;
+  try {{ localStorage.setItem('mrf_run', id); }} catch (e) {{}}
+}}
+function forgetRun() {{
+  try {{ localStorage.removeItem('mrf_run'); }} catch (e) {{}}
+}}
+window.addEventListener('load', function () {{
+  let saved = null;
+  try {{ saved = localStorage.getItem('mrf_run'); }} catch (e) {{}}
+  if (saved) {{
+    RUN_ID = saved;
+    document.getElementById('run').disabled = true;
+    poll();
+  }}
+}});
+
 async function start() {{
   const body = new URLSearchParams({{
     urls: document.getElementById('urls').value,
@@ -203,12 +241,14 @@ async function start() {{
   }});
   document.getElementById('run').disabled = true;
   document.getElementById('results').innerHTML = '';
-  document.getElementById('status').style.display = 'block';
-  document.getElementById('status').textContent = 'Starting...';
+  document.getElementById('searched').innerHTML = '';
+  document.getElementById('note').innerHTML =
+    '<p class="note">Gathering data, do not refresh this page, ' +
+    'this may take a few minutes :)</p>';
   const resp = await fetch('/run', {{method: 'POST', body}});
   const info = await resp.json();
   // Poll only this run: another tab's run must never render here.
-  RUN_ID = info.run;
+  rememberRun(info.run);
   poll();
 }}
 function esc(s) {{
@@ -230,9 +270,20 @@ async function poll() {{
   if (!RUN_ID) return;
   const r = await fetch('/log?run=' + encodeURIComponent(RUN_ID));
   const data = await r.json();
-  document.getElementById('status').textContent = data.lines.join('\\n');
-  const el = document.getElementById('status');
-  el.scrollTop = el.scrollHeight;
+
+  if (!data.done) {{
+    document.getElementById('note').innerHTML =
+      '<p class="note">' + esc(data.note ||
+        'Gathering data, do not refresh this page, ' +
+        'this may take a few minutes :)') + '</p>';
+  }} else {{
+    // Finished: the running note goes away, but a message that explains
+    // an empty result (no doctors found, an error) has to stay.
+    document.getElementById('note').innerHTML =
+      (data.results && data.results.length) || !data.note
+        ? '' : '<p class="note">' + esc(data.note) + '</p>';
+  }}
+
   if (data.results && data.results.length) {{
     // Name the condition on screen: if it guessed wrong from the pages,
     // that should be obvious before anyone reads the topics.
@@ -240,9 +291,24 @@ async function poll() {{
       ? '<p class="detected">Showing research on <b>' + esc(data.condition) +
         '</b>, detected from the pages you entered.</p>' : '';
     document.getElementById('results').innerHTML =
-      banner + render(data.results);
+      '<h2>Most prominent researchers</h2>' + banner + render(data.results);
   }}
-  if (data.done) {{ document.getElementById('run').disabled = false; return; }}
+
+  if (data.done && data.doctors && data.doctors.length) {{
+    let tail = '<h2>Doctors searched</h2><p class="plain">' +
+               data.doctors.map(esc).join('<br>') + '</p>';
+    if (data.csv) {{
+      tail += '<p class="plain">Full results saved to:<br>' +
+              esc(data.csv) + '</p>';
+    }}
+    document.getElementById('searched').innerHTML = tail;
+  }}
+
+  if (data.done) {{
+    document.getElementById('run').disabled = false;
+    forgetRun();
+    return;
+  }}
   setTimeout(poll, 1500);
 }}
 </script>
@@ -269,13 +335,15 @@ def pipeline(run_id, raw_urls, email):
 
         api_key = directory_scraper.get_api_key()
         urls = directory_scraper.split_urls(raw_urls)
+        set_field(run_id, note=f"Reading {len(urls)} directory page(s)...")
         log(f"Reading {len(urls)} directory page(s) ...")
         rows, detected = directory_scraper.build_roster(
             urls, api_key, log=log)
         if not rows:
-            log("No doctors were found on those pages. If the directory "
-                "hides its list behind a search button, link straight to a "
-                "results page.")
+            set_field(run_id, note="No doctors were found on those pages. "
+                                   "If the directory hides its list behind a "
+                                   "search button, link straight to a "
+                                   "results page.")
             return
 
         out_dir = os.path.join(HERE, "output")
@@ -287,12 +355,16 @@ def pipeline(run_id, raw_urls, email):
         log("")
 
         researchers = profiler.load_researchers(roster_path)
-        _, result_rows = profiler.run_auto(
-            detected, researchers, out_dir, log=log)
+        set_field(run_id, doctors=[r["name"] for r in researchers])
 
-        with LOCK:
-            if run_id in RUNS:
-                RUNS[run_id]["condition"] = detected
+        def progress(done, total):
+            set_field(run_id, note=f"Gathering data — searched {done} of "
+                                   f"{total} doctors. Do not refresh this "
+                                   f"page, this may take a few minutes :)")
+
+        csv_path, result_rows = profiler.run_auto(
+            detected, researchers, out_dir, log=log, on_progress=progress)
+        set_field(run_id, condition=detected, csv=csv_path or "")
 
         # Reshape the flat CSV rows into per-doctor blocks for the page.
         by_doctor = {}
@@ -314,8 +386,10 @@ def pipeline(run_id, raw_urls, email):
 
     except SystemExit as exc:
         log(f"STOPPED: {exc}")
+        set_field(run_id, note=f"Stopped: {exc}")
     except Exception as exc:
         log(f"ERROR: {exc}")
+        set_field(run_id, note=f"Something went wrong: {exc}")
     finally:
         with LOCK:
             if run_id in RUNS:
@@ -342,12 +416,16 @@ class Handler(BaseHTTPRequestHandler):
             run_id = parse_qs(query).get("run", [""])[0]
             with LOCK:
                 run = RUNS.get(run_id)
-                payload = ({"lines": list(run["lines"]), "done": run["done"],
+                payload = ({"done": run["done"],
                             "results": list(run["results"]),
-                            "condition": run.get("condition", "")} if run else
-                           {"lines": ["This run is no longer available. "
-                                      "Press Run to start a new one."],
-                            "done": True, "results": []})
+                            "condition": run.get("condition", ""),
+                            "note": run.get("note", ""),
+                            "doctors": list(run.get("doctors", [])),
+                            "csv": run.get("csv", "")} if run else
+                           {"done": True, "results": [], "doctors": [],
+                            "csv": "", "condition": "",
+                            "note": "This run is no longer available. "
+                                    "Press Run to start a new one."})
             self._send(json.dumps(payload), "application/json")
         else:
             self._send("not found", code=404)
@@ -371,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
         run_id = new_run()
         if problems:
             with LOCK:
-                RUNS[run_id]["lines"] = problems
+                RUNS[run_id]["note"] = " ".join(problems)
                 RUNS[run_id]["done"] = True
             self._send(json.dumps({"ok": False, "run": run_id}),
                        "application/json")

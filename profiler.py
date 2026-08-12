@@ -316,7 +316,7 @@ def slugify(label):
     return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
 
 
-def run_auto(condition, researchers, out_dir, log=print,
+def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
              min_focus_papers=10, topics_per_researcher=12,
              min_papers_per_topic=2, max_stars=5, start_year=2018,
              max_papers=500):
@@ -339,7 +339,9 @@ def run_auto(condition, researchers, out_dir, log=print,
     # ---- pass 1: fetch everyone's papers --------------------------------
     fetched = {}
     excluded = []
-    for person in researchers:
+    for index, person in enumerate(researchers):
+        if on_progress:
+            on_progress(index, len(researchers))
         name = person["name"]
         surname = person["author"].split()[0]
         initials = person["author"].split()[1] if " " in person["author"] else ""
@@ -365,6 +367,9 @@ def run_auto(condition, researchers, out_dir, log=print,
         except Exception as exc:
             log(f"    ERROR: {exc}")
             excluded.append((name, 0, f"error: {exc}"))
+
+    if on_progress:
+        on_progress(len(researchers), len(researchers))
 
     # ---- learn the vocabulary from the whole corpus ---------------------
     corpus = [a for arts in fetched.values() for a in arts if a["is_focus"]]
