@@ -114,11 +114,34 @@ PAGE = """<!DOCTYPE html>
   .detected {{ background: #eef2ff; border: 1px solid #c7d2fe;
                border-radius: 6px; padding: .55rem .8rem; font-size: .93rem;
                margin: 0 0 1.2rem; }}
+  .intro {{ border-left: 3px solid #d4d4d8; padding-left: .9rem;
+            margin: 1rem 0 1.6rem; }}
+  .intro p {{ margin: .5rem 0; }}
+  .legend {{ background: #fafafa; border: 1px solid #e5e5e5;
+             border-radius: 8px; padding: .9rem 1.1rem; margin-top: 1.6rem; }}
+  .legend h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
+  .legend p {{ margin: .5rem 0; font-size: .93rem; }}
+  .legend ul {{ margin: .4rem 0; padding-left: 1.3rem; font-size: .93rem; }}
+  .legend li {{ margin: .25rem 0; }}
+  .caveat {{ border-top: 1px solid #e5e5e5; padding-top: .6rem;
+             color: #555; }}
 </style>
 </head>
 <body>
 <h1>Med Research Finder</h1>
 <p class="sub">What each doctor actually publishes on, from PubMed.</p>
+
+<div class="intro">
+  <p><b>What this does.</b> Paste the web addresses of hospital
+  &ldquo;find a doctor&rdquo; pages. This tool reads every doctor listed on
+  them, looks each one up in PubMed (the national database of medical
+  research), and shows you the specific subjects each of them publishes
+  on &mdash; particular drugs, procedures, and clinical problems.</p>
+  <p>It works out on its own which condition the directory covers, so
+  there is nothing to choose or configure. A search takes roughly half a
+  minute per doctor, so a directory page of twenty runs about ten
+  minutes.</p>
+</div>
 
 <h2>Step 1 &mdash; Directory pages</h2>
 <p>Enter the URL for every hospital directory you'd like to search,
@@ -137,6 +160,36 @@ pulmonologists, provide a URL for each page.</div>
 
 <h2>Step 2 &mdash; Run</h2>
 <button id="run" onclick="start()">Run</button>
+
+<div class="legend">
+  <h3>How to read the results</h3>
+  <p>Each doctor is listed with the subjects they publish on, <b>most
+  distinctive first</b>. The order is not simply who publishes most: a
+  subject that nearly everyone in the group writes about tells you little,
+  so subjects that set a doctor apart from their colleagues rise to the
+  top.</p>
+  <p><b>Asterisks mark first-authored papers.</b> One asterisk per paper
+  on that subject where the doctor was the <i>first</i> author:</p>
+  <ul>
+    <li><span class="stars">&lowast;&lowast;&lowast;</span> &mdash; three
+    first-authored papers on that subject.</li>
+    <li><span class="stars">&lowast;x12</span> &mdash; twelve of them. Past
+    five, the count replaces the row of asterisks so the list stays
+    readable. <b>A number means more, not less.</b></li>
+    <li>No asterisks &mdash; the doctor contributed to papers on that
+    subject without being first author, which is common on large
+    multi-center studies.</li>
+  </ul>
+  <p>First authorship usually means the work was that person's to drive,
+  rather than one name among many. A doctor with 30 papers and many
+  first-authored ones is often running their own research program; one
+  with 300 papers and few may be a senior collaborator on other people's
+  studies. Both are accomplished &mdash; they are different things.</p>
+  <p class="caveat">Publishing is not the same as clinical skill. A doctor
+  with no papers at all may be the better choice for your care. This shows
+  what someone researches, which is a different question &mdash; use it as
+  a starting point for conversation, not a verdict.</p>
+</div>
 
 <div id="status"></div>
 <div id="results"></div>

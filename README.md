@@ -21,10 +21,27 @@ Claude Steriade          34 papers
    ...
 ```
 
-One asterisk per first-author paper on that topic. First authorship usually
-means the work was theirs to drive rather than a name on a consortium paper —
-which is why Steriade's 34-paper profile tells you more about her than
-Devinsky's 254-paper one does about him.
+### Reading the output
+
+Topics are listed **most distinctive first**, not simply most published. A
+subject nearly everyone in the group writes about says little about any one
+of them, so subjects that set a doctor apart rise to the top.
+
+**Asterisks mark first-authored papers** — one per paper on that topic where
+the doctor was first author:
+
+| Notation | Meaning |
+|---|---|
+| `***` | Three first-authored papers on that topic |
+| `*x12` | Twelve of them. Past five, the count replaces the asterisks so the list stays readable — **a number means more, not less** |
+| *(none)* | Contributed without being first author, common on large multi-center studies |
+
+First authorship usually means the work was that person's to drive rather
+than one name among many. A doctor with 30 papers and many first-authored
+ones is often running their own program; one with 300 and few may be a
+senior collaborator on other people's studies. Both are accomplished — they
+are different things. It is why Steriade's 34-paper profile tells you more
+about her than Devinsky's 254-paper one does about him.
 
 There is nothing to configure. The condition being profiled and the topic
 vocabulary are both worked out automatically, so the same tool covers
@@ -160,8 +177,8 @@ Jordan Axelrad,Axelrad J,NYU Langone|NYU|New York University,
   counts toward it.
 - **Publication volume is not clinical skill.** A doctor with no papers may
   be the better clinician; this tool measures what someone researches, which
-  is a different question. Treat the output as a map for further reading,
-  not a verdict.
+  is a different question. Treat the output as a starting point for
+  conversation, not a verdict.
 
 ## License
 

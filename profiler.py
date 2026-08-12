@@ -455,7 +455,11 @@ def _report(profiles, excluded, label, min_focus_papers, start_year,
     log("\n" + "=" * 70)
     log(f"RESEARCHERS WITH {min_focus_papers}+ {label.upper()} PAPERS "
         f"SINCE {start_year}")
-    log("* = one first-author paper on that topic")
+    log("Topics are listed most-distinctive first, not simply most-published.")
+    log("* = one first-author paper on that topic. Past five, the count "
+        "replaces")
+    log("    the asterisks (*x12 means twelve -- a number means more, "
+        "not less).")
     log("=" * 70)
 
     rows = []
