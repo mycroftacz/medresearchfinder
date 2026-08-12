@@ -147,10 +147,20 @@ PAGE = """<!DOCTYPE html>
     background-size: cover, 28px 28px, cover;
     background-attachment: fixed, fixed, fixed;
   }}
-  body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 820px;
-         margin: 2rem auto; padding: 0 1rem; line-height: 1.45;
-         color: #1a1a1a; background: transparent; }}
-  h1 {{ font-size: 1.55rem; color: #1a1a1a; margin-bottom: .2rem; }}
+  body {{ font-family: -apple-system, system-ui, sans-serif;
+         max-width: 820px; box-sizing: border-box;
+         margin: 2rem auto; padding: 1.6rem 1.9rem 2.4rem;
+         line-height: 1.45; color: #1a1a1a;
+         /* Text sat straight on the Y texture and fought it. A mostly
+            opaque sheet keeps every heading and paragraph legible while
+            the pattern still shows through faintly and frames the page
+            down both margins. */
+         background: rgba(255, 255, 255, 0.90);
+         border: 1px solid rgba(127, 178, 220, 0.35);
+         border-radius: 14px;
+         box-shadow: 0 2px 20px rgba(31, 74, 120, 0.10); }}
+  h1 {{ font-size: 1.55rem; color: #16324f; margin: 0 0 .6rem;
+        line-height: 1.25; }}
   .sub {{ color: #555; margin-top: 0; }}
   h2 {{ font-size: 1.05rem; margin: 1.5rem 0 .3rem; color: #1a1a1a; }}
   p {{ color: #1a1a1a; }}
