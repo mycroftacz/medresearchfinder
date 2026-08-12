@@ -529,7 +529,12 @@ def split_urls(raw):
     turns a double space into ". " -- which would otherwise weld two
     links into one unparseable string.
     """
-    parts = re.split(r"[;,\s]+", raw)
+    # Semicolons and whitespace always separate. A comma only separates
+    # when what follows is another link or a space -- commas are legal
+    # inside a URL, and directory pages really do use them
+    # (?answeredQuestionTypes=demographic,specialist,condition), so
+    # splitting on every comma tore working addresses into pieces.
+    parts = re.split(r"[;\s]+|,(?=\s|https?://)", raw)
     cleaned = []
     for part in parts:
         # Strip what pasting drags along: sentence punctuation left by
