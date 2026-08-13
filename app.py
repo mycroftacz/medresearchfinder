@@ -216,6 +216,11 @@ PAGE = """<!DOCTYPE html>
   #searched {{ margin-top: 2rem; }}
   .plain {{ font-size: .93rem; color: #333; line-height: 1.7; }}
   .limit {{ color: #6b5b1f; font-size: .88rem; }}
+  .required {{ font-size: .68rem; font-weight: 600; letter-spacing: .06em;
+               text-transform: uppercase; color: #9a3412;
+               background: #fff1e7; border: 1px solid #f3d3bd;
+               border-radius: 4px; padding: .1rem .35rem;
+               vertical-align: middle; margin-left: .35rem; }}
   .problem {{ background: #fef2f2; border: 1px solid #fecaca;
               border-radius: 6px; padding: .7rem .9rem; margin: 1.2rem 0 0;
               font-size: .93rem; color: #7f1d1d; }}
@@ -314,10 +319,11 @@ hospital or medical school page listing doctors by name.</span></div>
 <textarea id="urls" placeholder="https://hospital.org/find-a-doctor/pulmonology; https://hospital.org/find-a-doctor/pulmonology?page=2"></textarea>
 
 <div id="emailbox" style="{email_display}">
-  <h2>Your email</h2>
-  <p class="hint">PubMed requires a contact address on every request.
-  Entered once, then remembered.</p>
-  <input type="email" id="email" value="{email}" placeholder="you@example.com">
+  <h2>Your email <span class="required">required</span></h2>
+  <p class="hint">The medical research database requires a contact address
+  with every search. It is used for nothing else.</p>
+  <input type="email" id="email" value="{email}" required
+         placeholder="you@example.com">
 </div>
 
 <h2>Step 2 &mdash; Run</h2>
@@ -398,23 +404,63 @@ window.addEventListener('load', function () {{
   }}
 }});
 
+function showProblems(list) {{
+  document.getElementById('note').innerHTML =
+    '<div class="problem"><b>That didn\\'t work.</b><ul>' +
+    list.map(function (p) {{ return '<li>' + esc(p) + '</li>'; }}).join('') +
+    '</ul></div>';
+}}
+
 async function start() {{
-  const body = new URLSearchParams({{
-    urls: document.getElementById('urls').value,
-    email: (document.getElementById('email')||{{value:''}}).value,
-    token: TOKEN,
-  }});
+  // Check here before anything is sent. The page used to paint
+  // "Gathering data..." the instant Run was pressed, so a search refused
+  // for a missing email looked like a search that had started and then
+  // broken.
+  const urls = document.getElementById('urls').value.trim();
+  const emailEl = document.getElementById('email');
+  const emailBox = document.getElementById('emailbox');
+  const emailAsked = emailEl && emailBox &&
+                     emailBox.style.display !== 'none';
+  const email = emailEl ? emailEl.value.trim() : '';
+
+  const problems = [];
+  if (!urls) {{
+    problems.push('Please paste at least one directory web address.');
+  }}
+  if (emailAsked && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {{
+    problems.push('Please enter your email address. The medical research ' +
+                  'database requires one with every search.');
+  }}
+  if (problems.length) {{
+    showProblems(problems);
+    if (emailAsked && !email) emailEl.focus();
+    else document.getElementById('urls').focus();
+    return;
+  }}
+
+  const body = new URLSearchParams({{urls: urls, email: email,
+                                    token: TOKEN}});
   document.getElementById('run').disabled = true;
   document.getElementById('results').innerHTML = '';
   document.getElementById('thin').innerHTML = '';
   document.getElementById('searched').innerHTML = '';
+  ANNOUNCED = false;
+
+  const resp = await fetch('/run', {{method: 'POST', body}});
+  const info = await resp.json();
+  if (!info.ok) {{
+    // The server refused it; poll once so its reason is displayed
+    // instead of a progress note for a search that never began.
+    document.getElementById('run').disabled = false;
+    if (info.run) {{ RUN_ID = info.run; poll(); }}
+    else showProblems(['That search could not be started. Please reload ' +
+                       'the page and try again.']);
+    return;
+  }}
+  // Only now is a search genuinely under way.
   document.getElementById('note').innerHTML =
     '<p class="note">Gathering data, do not refresh this page, ' +
     'this may take a few minutes :)</p>';
-  ANNOUNCED = false;
-  const resp = await fetch('/run', {{method: 'POST', body}});
-  const info = await resp.json();
-  // Poll only this run: another tab's run must never render here.
   rememberRun(info.run);
   poll();
 }}
