@@ -19,6 +19,8 @@ No network: everything here runs offline in about a second.
 """
 
 import sys
+import threading
+import time
 from collections import Counter
 
 import app
@@ -460,11 +462,90 @@ def test_parallel_matches_sequential():
     print("  same rosters, one worker and three")
 
 
+def test_simultaneous_searches():
+    section("Two people searching at the same time")
+    from Bio import Entrez
+
+    topics = ["Colitis, Ulcerative", "Crohn Disease", "Vedolizumab",
+              "Surgery / procedural"]
+    # Each search has its own doctors, so a result crossing between them
+    # is visible rather than merely suspected.
+    rosters = {
+        "first": [{"name": f"Doctor A{i}", "author": f"A{i} AA",
+                   "affiliation": "NYU"} for i in range(6)],
+        "second": [{"name": f"Doctor B{i}", "author": f"B{i} BB",
+                    "affiliation": "Mount Sinai"} for i in range(6)],
+    }
+
+    # Watch the gate from the inside: count how many lookups are in
+    # flight at once and keep the high-water mark.
+    live, peak, watch = [0], [0], threading.Lock()
+
+    def fake_ids(author, affiliation, start_year, max_papers, pause):
+        with watch:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        time.sleep(0.02)          # long enough for the threads to overlap
+        with watch:
+            live[0] -= 1
+        return [str(int(author[1]) * 100 + i) for i in range(9)]
+
+    def fake_fetch(pmids, surname, initials, focus, patterns, pause,
+                   dropped=None, dept_pattern=None):
+        return [{"pmid": p, "mesh": topics[:1 + int(p) % 4],
+                 "substances": [], "text": "ulcerative colitis",
+                 "is_focus": True, "first_author": int(p) % 3 == 0}
+                for p in pmids]
+
+    real_ids, real_fetch = profiler.find_paper_ids, profiler.fetch_articles
+    real_gate, real_key = profiler._gate, Entrez.api_key
+    profiler.find_paper_ids, profiler.fetch_articles = fake_ids, fake_fetch
+    Entrez.api_key = "pretend-key"
+    profiler._gate = None                     # size it fresh for this test
+    got = {}
+
+    def search(label):
+        _, rows, _ = profiler.run_auto(
+            "ulcerative colitis", rosters[label],
+            f"/tmp/mrf-simultaneous-{label}", log=lambda *a: None)
+        got[label] = sorted({r["researcher"] for r in rows})
+
+    try:
+        threads = [threading.Thread(target=search, args=(label,))
+                   for label in rosters]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+
+        check("both searches finished", sorted(got), ["first", "second"])
+        # The whole point: neither search may see the other's doctors.
+        check("first search returned only its own doctors",
+              all(n.startswith("Doctor A") for n in got.get("first", [])),
+              True)
+        check("second search returned only its own doctors",
+              all(n.startswith("Doctor B") for n in got.get("second", [])),
+              True)
+        check("both searches produced results",
+              min(len(got.get("first", [])), len(got.get("second", []))) > 0,
+              True)
+        # Two searches of three workers each would reach six without the
+        # shared gate, which is what gets PubMed to block the lot.
+        check("never exceeded the shared PubMed allowance",
+              peak[0] <= profiler.PARALLEL_WITH_KEY, True)
+        check("searches really did overlap", peak[0] > 1, True)
+    finally:
+        profiler.find_paper_ids, profiler.fetch_articles = real_ids, real_fetch
+        profiler._gate, Entrez.api_key = real_gate, real_key
+    print(f"  two rosters at once, {peak[0]} lookups in flight at the peak")
+
+
 def main():
     for test in (test_urls, test_clinical, test_person_names, test_author_form,
                  test_injection, test_malformed_scrape, test_numbers,
                  test_focus, test_rosters, test_output_files,
-                 test_parallel_matches_sequential):
+                 test_parallel_matches_sequential,
+                 test_simultaneous_searches):
         test()
 
     print("\n" + "=" * 62)

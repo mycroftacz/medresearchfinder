@@ -194,8 +194,11 @@ to the address people visit. The startup log prints which hostnames it
 will answer to, and says so plainly if it knows none.
 
 Two things to expect on a free tier: the service sleeps after about
-fifteen minutes idle and takes a moment to wake, and searches run one at a
-time, so a second visitor arriving mid-search is asked to wait.
+fifteen minutes idle and takes a moment to wake, and a few people can
+search at once but not many. PubMed's request allowance belongs to the
+whole program rather than to any one search, so overlapping searches share
+it and each one running makes the others slower — three at a time with an
+API key, two without, and anyone past that is asked to come back shortly.
 
 ## Tests
 

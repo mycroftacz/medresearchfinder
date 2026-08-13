@@ -39,7 +39,14 @@ ENV_PATH = os.path.join(HERE, ".env")
 RUNS = {}
 LOCK = threading.Lock()
 _RUN_SEQ = 0
-MAX_ACTIVE_RUNS = 1
+# How many people may search at the same time. PubMed's request allowance
+# belongs to the whole program rather than to any one search, so searches
+# share it (see profiler.pubmed_slot) and each extra one running makes the
+# others slower rather than faster. An API key raises the allowance enough
+# for three; without one there is only a single connection to share, so two
+# at a time is as far as it can go before the wait stops looking like
+# progress.
+MAX_ACTIVE_RUNS = 3 if os.environ.get("NCBI_API_KEY") else 2
 
 # This server listens on localhost, which does NOT mean only this page can
 # reach it: any site open in the browser can post a form to 127.0.0.1 and
@@ -290,6 +297,12 @@ PAGE = """<!DOCTYPE html>
                   font-family: "IBM Plex Mono", ui-monospace, monospace; }}
 
   /* --- results ------------------------------------------------------- */
+  #results {{
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 56px;
+  }}
+  #results > h2, #results > .samename {{ grid-column: 1 / -1; }}
+  #results > .doc {{ align-self: start; }}
   h2 {{
     font-family: Newsreader, Georgia, serif; font-weight: 400;
     font-size: 27px; letter-spacing: -0.01em; color: #F4EFE2;
@@ -314,8 +327,14 @@ PAGE = """<!DOCTYPE html>
   }}
   .doc ul {{ margin: 0; padding: 0; list-style: none;
              display: flex; flex-direction: column; gap: 5px; }}
-  .doc li {{ display: grid; grid-template-columns: 68px 1fr; gap: 14px;
-             align-items: baseline; font-size: 15px; color: #F2F0EA; }}
+  /* The marks sit in a fixed gutter to the left of every subject, so a
+     twelve-subject list reads as one strip rather than as punctuation
+     trailing each line. Lifting them out of the flow (rather than giving
+     them a grid column) is what keeps unmarked subjects on the same left
+     edge — the script writes no element at all for those. */
+  .doc li {{ position: relative; padding-left: 46px;
+             font-size: 15px; color: #F2F0EA; }}
+  .doc li .stars {{ position: absolute; left: 0; top: 0; }}
   .stars {{ font-family: "IBM Plex Mono", ui-monospace, monospace;
             font-size: 13px; color: #E8B25C; letter-spacing: 1px; }}
   .caution-inline {{ font-size: 12.5px; color: #E8B25C; margin: 0 0 10px; }}
@@ -362,6 +381,9 @@ PAGE = """<!DOCTYPE html>
     font-size: 19px; line-height: 1.55; color: #A9AECB; max-width: 62ch;
   }}
 
+  @media (max-width: 1000px) {{
+    #results {{ grid-template-columns: 1fr; column-gap: 0; }}
+  }}
   @media (max-width: 900px) {{
     .page {{ padding: 40px 22px 72px; }}
     .masthead {{ grid-template-columns: 1fr; gap: 40px; }}
@@ -370,8 +392,7 @@ PAGE = """<!DOCTYPE html>
     /* 16px keeps iOS from zooming the page when a field is tapped. */
     textarea, input[type=email] {{ font-size: 16px; }}
     #example {{ width: 100%; justify-content: center; }}
-    .doc li {{ grid-template-columns: 1fr; gap: 0; }}
-    .stars {{ display: block; }}
+    #results {{ grid-template-columns: 1fr; column-gap: 0; }}
     .caveat {{ font-size: 17px; }}
   }}
 </style>
@@ -1123,16 +1144,17 @@ class Handler(BaseHTTPRequestHandler):
             problems.append("Please enter a valid email address — PubMed "
                             "requires one on every request.")
 
-        # Each run holds open PubMed connections for minutes. Letting them
-        # pile up gets the user's own address rate-limited, so refuse
-        # rather than degrade every run at once.
+        # Searches share PubMed connections, so a few can overlap. Past
+        # that they only slow each other down, so refuse rather than let
+        # everyone watch a search that has stopped moving.
         with LOCK:
             active = sum(1 for r in RUNS.values() if not r["done"])
         if active >= MAX_ACTIVE_RUNS and not problems:
             problems.append(
-                f"A search is already running. Please wait for it to finish "
-                f"before starting another — PubMed limits how fast anyone "
-                f"may search, and running several at once gets them all "
+                f"{active} searches are already running, which is as many "
+                f"as this can do at once. Please try again in a few "
+                f"minutes — the medical research database limits how fast "
+                f"anyone may search, and crowding it gets every search "
                 f"blocked.")
 
         run_id = new_run()

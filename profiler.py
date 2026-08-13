@@ -89,6 +89,27 @@ MAX_RESEARCHERS = 150
 # second, comfortably inside the ten a key permits.
 PARALLEL_WITH_KEY = 3
 
+# PubMed's limit is on the whole program, not on one search, so several
+# searches running at once have to share the same allowance. Every lookup
+# takes a slot from this gate first; when searches overlap they take turns
+# rather than each opening its own three connections and getting the lot
+# of them blocked.
+_gate = None
+_gate_lock = threading.Lock()
+
+
+def pubmed_slot():
+    """Reserve one of the program's PubMed connections. Use as a context
+    manager. Sized on first use, and never resized — a live gate cannot be
+    swapped out from under the threads already waiting on it."""
+    global _gate
+    if _gate is None:
+        with _gate_lock:
+            if _gate is None:
+                _gate = threading.Semaphore(
+                    PARALLEL_WITH_KEY if Entrez.api_key else 1)
+    return _gate
+
 
 # MeSH headings too generic to be worth reporting, regardless of specialty.
 # Add disease-specific ones (the focus condition itself, its umbrella terms)
@@ -553,19 +574,21 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
     finished = [0]
 
     def look_up(person):
-        """One researcher's papers. Runs on a worker thread."""
+        """One researcher's papers. Runs on a worker thread, and only while
+        holding one of the program's shared PubMed connections."""
         name = person["name"]
         surname = person["author"].split()[0]
         initials = (person["author"].split()[1]
                     if " " in person["author"] else "")
-        pmids = find_paper_ids(person["author"], person["affiliation"],
-                               start_year, max_papers, pause)
-        if not pmids:
-            return name, None, "no papers found", 0
-        dropped = [0]
-        articles = fetch_articles(pmids, surname, initials, {}, [], pause,
-                                  dropped=dropped,
-                                  dept_pattern=dept_pattern)
+        with pubmed_slot():
+            pmids = find_paper_ids(person["author"], person["affiliation"],
+                                   start_year, max_papers, pause)
+            if not pmids:
+                return name, None, "no papers found", 0
+            dropped = [0]
+            articles = fetch_articles(pmids, surname, initials, {}, [], pause,
+                                      dropped=dropped,
+                                      dept_pattern=dept_pattern)
         for article in articles:
             article["is_focus"] = auto_topics.is_focus_paper(article, focus)
         return name, articles, None, dropped[0]
