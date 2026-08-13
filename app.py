@@ -156,66 +156,111 @@ PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Which doctor is most published?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  html {{
-    background-color: #eaf4fc;
-    /* A wash of very small Y shapes that thins out down the page: the
-       fading white layer on top is what turns the texture into a
-       gradient, so the gradient is made of the Ys themselves. */
-    background-image:
-      linear-gradient(180deg,
-        rgba(255,255,255,0.00) 0%,
-        rgba(255,255,255,0.55) 42%,
-        rgba(255,255,255,0.92) 78%,
-        rgba(255,255,255,1.00) 100%),
-      url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2728%27%20height%3D%2728%27%20viewBox%3D%270%200%2028%2028%27%3E%3Cg%20fill%3D%27none%27%20stroke%3D%27%237fb2dc%27%20stroke-width%3D%271.05%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%205%20L7%208.4%20L10%205%20M7%208.4%20L7%2012%27%2F%3E%3Cpath%20d%3D%27M18%2019%20L21%2022.4%20L24%2019%20M21%2022.4%20L21%2026%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E"),
-      linear-gradient(180deg, #d5e9f8 0%, #e9f4fc 55%, #f7fbfe 100%);
-    background-repeat: no-repeat, repeat, no-repeat;
-    background-size: cover, 28px 28px, cover;
-    background-attachment: fixed, fixed, fixed;
+  /* Editorial register, from the UI critique. Two hues: deep navy ground,
+     warm off-white ink, with one sand accent reserved for orientation --
+     eyebrow, secondary action, disclosure markers. Saturated red and
+     yellow are kept for things that are genuinely wrong, which in a
+     medical tool is the only honest use for them. */
+  html {{ background: #1B1F4B; }}
+  body {{
+    margin: 0; padding: 0;
+    background: #1B1F4B; color: #F2F0EA;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 16px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }}
-  body {{ font-family: -apple-system, system-ui, sans-serif;
-         max-width: 820px; box-sizing: border-box;
-         margin: 2rem auto; padding: 1.6rem 1.9rem 2.4rem;
-         line-height: 1.45; color: #1a1a1a;
-         /* Text sat straight on the Y texture and fought it. A mostly
-            opaque sheet keeps every heading and paragraph legible while
-            the pattern still shows through faintly and frames the page
-            down both margins. */
-         background: rgba(255, 255, 255, 0.90);
-         border: 1px solid rgba(127, 178, 220, 0.35);
-         border-radius: 14px;
-         box-shadow: 0 2px 20px rgba(31, 74, 120, 0.10); }}
-  h1 {{ font-size: 1.55rem; color: #16324f; margin: 0 0 .6rem;
-        line-height: 1.25; }}
-  .sub {{ color: #555; margin-top: 0; }}
-  h2 {{ font-size: 1.05rem; margin: 1.5rem 0 .3rem; color: #1a1a1a; }}
-  p {{ color: #1a1a1a; }}
-  .hint {{ color: #555; font-size: .9rem; margin: .2rem 0 .6rem; }}
-  .reminder {{ background: #fff8e1; border: 1px solid #e6d9a8;
-               border-radius: 6px; padding: .6rem .8rem; font-size: .92rem;
-               margin: .4rem 0 .8rem; }}
-  textarea, input[type=email] {{ width: 100%; box-sizing: border-box;
-      padding: .5rem; border: 1px solid #bbb; border-radius: 6px;
-      font-size: .95rem; background: #fff; color: #1a1a1a; }}
-  textarea {{ height: 110px; }}
-  button {{ margin-top: 1rem; padding: .6rem 1.8rem; font-size: 1rem;
-           background: #1d4ed8; color: #fff; border: 0; border-radius: 6px;
-           cursor: pointer; }}
-  button:disabled {{ background: #93a6d8; cursor: default; }}
+  .page {{ max-width: 1120px; margin: 0 auto; padding: 64px 40px 96px; }}
+
+  /* --- masthead: proposition left, the task right ------------------- */
+  .masthead {{
+    display: grid; grid-template-columns: 1.05fr 1fr; gap: 60px;
+    align-items: start; padding-bottom: 44px;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+  }}
+  .eyebrow {{
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: #E8B25C; margin: 0 0 20px;
+  }}
+  h1 {{
+    font-family: Newsreader, Georgia, serif; font-weight: 400;
+    font-size: 54px; line-height: 1.03; letter-spacing: -0.02em;
+    color: #F4EFE2; margin: 0 0 22px; max-width: 20ch;
+    text-wrap: balance;
+  }}
+  .lede {{ margin: 0 0 14px; font-size: 17px; line-height: 1.62;
+           color: #A9AECB; max-width: 62ch; text-wrap: pretty; }}
+  .lede strong {{ color: #F2F0EA; font-weight: 500; }}
+
+  /* --- controls ----------------------------------------------------- */
+  .field {{ margin-bottom: 26px; }}
+  .fieldhead {{
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 8px;
+  }}
+  label {{ font-size: 13px; letter-spacing: .02em; color: #F2F0EA; }}
+  .counter {{ font-family: "IBM Plex Mono", ui-monospace, monospace;
+              font-size: 11px; color: #7C82A8; }}
+  textarea, input[type=email] {{
+    width: 100%; box-sizing: border-box; padding: 12px 13px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 0;
+    color: #F2F0EA; font-size: 15px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }}
+  textarea {{ height: 104px; resize: vertical; line-height: 1.5; }}
+  textarea::placeholder, input::placeholder {{ color: #6B709A; }}
+  textarea:focus, input[type=email]:focus {{
+    outline: none; border-color: #E8B25C;
+    background: rgba(255,255,255,0.09);
+  }}
+  .help {{ margin: 8px 0 0; font-size: 12.5px; line-height: 1.5;
+           color: #7C82A8; }}
+
+  /* Primary action: the one solid object on the page. */
+  #run {{
+    width: 100%; padding: 14px 16px; border: 0; border-radius: 0;
+    background: #F2F0EA; color: #1B1F4B; cursor: pointer;
+    font-family: inherit; font-size: 15px; letter-spacing: .01em;
+  }}
+  #run:hover {{ background: #FFFFFF; }}
+  #run:disabled {{ background: #6E7196; color: #D6D9E8; cursor: default; }}
+  .act {{ border-top: 1px solid rgba(255,255,255,0.12); padding-top: 18px; }}
+  .act-note {{ margin: 10px 0 0; font-size: 12px; color: #A9AECB;
+               text-align: center; }}
+
+  /* Secondary action: outlined, quiet, in the accent. */
+  .example-wrap {{ margin-top: 26px; }}
+  #example {{
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 13px 20px; background: transparent;
+    border: 1px solid #E8B25C; border-radius: 0; color: #E8B25C;
+    font-family: inherit; font-size: 15px; letter-spacing: .01em;
+    cursor: pointer;
+  }}
+  #example:hover {{ background: rgba(232,178,92,0.10); }}
+  #example:disabled {{ border-color: #6E7196; color: #8A8FB5;
+                       cursor: default; background: transparent; }}
+  .example-note {{ margin: 10px 0 0; font-size: 12px; color: #7C82A8; }}
+  button:focus-visible, a:focus-visible, summary:focus-visible {{
+    outline: 2px solid #E8B25C; outline-offset: 2px;
+  }}
+
+  /* --- progress and completion -------------------------------------- */
   .note {{
     display: flex; align-items: center; gap: .8rem;
-    background: #eaf3fd; border: 1px solid #b9d7f2;
-    border-left: 5px solid #1d4ed8;
-    border-radius: 8px; padding: .95rem 1.1rem; margin: 1.2rem 0 0;
-    color: #16324f; font-size: 1rem; font-weight: 500;
-    box-shadow: 0 1px 10px rgba(31, 74, 120, 0.10);
+    margin: 28px 0 0; padding: 16px 18px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.18); border-left: 3px solid #E8B25C;
+    color: #F2F0EA; font-size: 15px;
   }}
-  /* A live dot: a search runs for minutes, and a static line of text
-     gives no sign that anything is still happening. */
   .note.working::before {{
-    content: ""; flex: none; width: .72rem; height: .72rem;
-    border-radius: 50%; background: #1d4ed8;
+    content: ""; flex: none; width: .6rem; height: .6rem;
+    border-radius: 50%; background: #E8B25C;
     animation: pulse 1.4s ease-in-out infinite;
   }}
   @keyframes pulse {{
@@ -225,232 +270,241 @@ PAGE = """<!DOCTYPE html>
   @media (prefers-reduced-motion: reduce) {{
     .note.working::before {{ animation: none; }}
   }}
+  .note.finished {{ border-left-color: #8FD3B0; }}
   .notebody {{ flex: 1; min-width: 0; }}
-  .track {{
-    height: 7px; background: #cfe2f6; border-radius: 4px;
-    margin-top: .55rem; overflow: hidden;
+  .track {{ height: 4px; background: rgba(255,255,255,0.14);
+            margin-top: .6rem; overflow: hidden; }}
+  .fill {{ height: 100%; background: #E8B25C; transition: width .5s ease; }}
+  .problem {{
+    margin: 28px 0 0; padding: 16px 18px;
+    background: rgba(169,59,38,0.14);
+    border: 1px solid rgba(232,140,120,0.45); border-left: 3px solid #E08A72;
+    color: #F6DCD4; font-size: 15px;
   }}
-  .fill {{
-    height: 100%; background: #1d4ed8; border-radius: 4px;
-    transition: width .5s ease;
+  .problem ul {{ margin: .5rem 0 0; padding-left: 1.1rem; }}
+  .problem li {{ margin: .25rem 0; }}
+  .problem summary {{ cursor: pointer; color: #E8B25C; font-size: 12.5px; }}
+  .problem pre {{ white-space: pre-wrap; font-size: 12px; color: #C9CDE4;
+                  background: rgba(0,0,0,0.22); padding: .6rem;
+                  margin-top: .5rem; max-height: 12rem; overflow-y: auto;
+                  font-family: "IBM Plex Mono", ui-monospace, monospace; }}
+
+  /* --- results ------------------------------------------------------- */
+  h2 {{
+    font-family: Newsreader, Georgia, serif; font-weight: 400;
+    font-size: 27px; letter-spacing: -0.01em; color: #F4EFE2;
+    margin: 56px 0 6px; padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.18);
+  }}
+  .samename {{
+    margin: 14px 0 0; padding: 14px 16px; font-size: 13.5px;
+    background: rgba(255,255,255,0.05);
+    border-left: 3px solid #E8B25C; color: #A9AECB;
+  }}
+  .samename b {{ color: #F2F0EA; font-weight: 500; }}
+  .doc {{ padding: 26px 0; border-bottom: 1px solid rgba(255,255,255,0.12); }}
+  .doc h3 {{
+    font-family: Newsreader, Georgia, serif; font-weight: 400;
+    font-size: 22px; color: #F4EFE2; margin: 0 0 2px;
+  }}
+  .doc .meta {{
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px; color: #7C82A8; margin: 0 0 14px;
+    letter-spacing: .04em;
+  }}
+  .doc ul {{ margin: 0; padding: 0; list-style: none;
+             display: flex; flex-direction: column; gap: 5px; }}
+  .doc li {{ display: grid; grid-template-columns: 68px 1fr; gap: 14px;
+             align-items: baseline; font-size: 15px; color: #F2F0EA; }}
+  .stars {{ font-family: "IBM Plex Mono", ui-monospace, monospace;
+            font-size: 13px; color: #E8B25C; letter-spacing: 1px; }}
+  .caution-inline {{ font-size: 12.5px; color: #E8B25C; margin: 0 0 10px; }}
+  .verify {{ font-size: 12.5px; color: #7C82A8; margin: 14px 0 0; }}
+  .verify a {{ color: #A9AECB; text-decoration: underline;
+               text-underline-offset: 3px; }}
+  .verify a:hover {{ color: #E8B25C; }}
+  .plain {{ font-size: 14px; color: #A9AECB; line-height: 1.75;
+            word-break: break-word; }}
+  #thin ul {{ margin: .4rem 0 0; padding-left: 1.1rem; }}
+  #thin li {{ font-size: 14px; color: #A9AECB; }}
+  #searched a, #results a {{ color: #E8B25C; }}
+
+  /* --- documentation, collapsed by default -------------------------- */
+  .docs {{ margin-top: 64px; border-top: 1px solid rgba(255,255,255,0.18); }}
+  details {{ border-bottom: 1px solid rgba(255,255,255,0.12); }}
+  details > summary {{
+    list-style: none; cursor: pointer; padding: 20px 0;
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 20px; font-family: Newsreader, Georgia, serif; font-size: 20px;
+    color: #F4EFE2;
+  }}
+  details > summary::-webkit-details-marker {{ display: none; }}
+  details > summary::after {{ content: "+"; color: #E8B25C;
+                              font-family: "IBM Plex Mono", monospace;
+                              font-size: 17px; }}
+  details[open] > summary::after {{ content: "\2212"; }}
+  .disclosure {{ padding: 0 0 24px; max-width: 68ch; }}
+  .disclosure p {{ margin: 0 0 12px; font-size: 15px; line-height: 1.62;
+                   color: #A9AECB; }}
+  .disclosure p strong, .disclosure b {{ color: #F2F0EA; font-weight: 500; }}
+  .disclosure ul {{ margin: 10px 0; padding-left: 1.1rem;
+                    font-size: 15px; color: #A9AECB; }}
+  .disclosure li {{ margin: .3rem 0; }}
+  .disclosure code {{ font-family: "IBM Plex Mono", ui-monospace, monospace;
+                      font-size: 13px; color: #E8B25C;
+                      word-break: break-all; }}
+  .rule-label {{
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px;
+    letter-spacing: .1em; text-transform: uppercase; color: #E8B25C;
+  }}
+  .caveat {{
+    margin: 44px 0 0; font-family: Newsreader, Georgia, serif;
+    font-size: 19px; line-height: 1.55; color: #A9AECB; max-width: 62ch;
   }}
 
-  #results {{ margin-top: 1.5rem; }}
-  #results h2, #searched h2, #thin h2 {{ border-bottom: 2px solid #1a1a1a;
-                                          padding-bottom: .25rem; }}
-  #thin {{ margin-top: 2rem; }}
-  #thin ul {{ padding-left: 1.2rem; }}
-  .caution-inline {{ color: #92400e; font-size: .85rem; margin: 0 0 .4rem; }}
-  .verify {{ font-size: .82rem; color: #666; margin: .4rem 0 0; }}
-  .verify a {{ color: #1d4ed8; }}
-  .samename {{ background: #fff8e1; border: 1px solid #e6d9a8;
-               border-radius: 6px; padding: .6rem .8rem; font-size: .9rem;
-               margin: 0 0 1.2rem; }}
-  #searched {{ margin-top: 2rem; }}
-  .plain {{ font-size: .93rem; color: #333; line-height: 1.7; }}
-  .limit {{ color: #6b5b1f; font-size: .88rem; }}
-  .required {{ font-size: .68rem; font-weight: 600; letter-spacing: .06em;
-               text-transform: uppercase; color: #9a3412;
-               background: #fff1e7; border: 1px solid #f3d3bd;
-               border-radius: 4px; padding: .1rem .35rem;
-               vertical-align: middle; margin-left: .35rem; }}
-  .problem {{ background: #fef2f2; border: 1px solid #fecaca;
-              border-radius: 6px; padding: .7rem .9rem; margin: 1.2rem 0 0;
-              font-size: .93rem; color: #7f1d1d; }}
-  .problem ul {{ margin: .4rem 0 0; padding-left: 1.2rem; }}
-  .problem li {{ margin: .2rem 0; }}
-  .problem details {{ margin-top: .6rem; }}
-  .problem summary {{ cursor: pointer; color: #9a3412; font-size: .85rem; }}
-  .problem pre {{ white-space: pre-wrap; font-size: .78rem; color: #555;
-                  background: #fff; border-radius: 4px; padding: .5rem;
-                  margin-top: .4rem; max-height: 12rem; overflow-y: auto; }}
-  .doc {{ margin-bottom: 1.4rem; padding-bottom: 1rem;
-          border-bottom: 1px solid #eee; }}
-  .doc h3 {{ margin: 0 0 .1rem; font-size: 1.08rem; }}
-  .doc .meta {{ color: #666; font-size: .85rem; margin: 0 0 .45rem; }}
-  .doc ul {{ margin: 0; padding-left: 1.2rem; }}
-  .doc li {{ margin: .12rem 0; }}
-  .stars {{ color: #b45309; letter-spacing: 1px; }}
-  .thin {{ color: #666; font-size: .9rem; }}
-  .intro {{ border-left: 3px solid #d4d4d8; padding-left: .9rem;
-            margin: 1rem 0 1.6rem; }}
-  .intro p {{ margin: .5rem 0; }}
-  .trybox {{ margin: 0 0 1.6rem; text-align: center; }}
-  .example-btn {{
-    margin: 0; padding: .7rem 1.5rem; font-size: 1rem; font-weight: 600;
-    background: #b3261e; color: #fff; border: 0; border-radius: 6px;
-    cursor: pointer; box-shadow: 0 1px 6px rgba(179, 38, 30, 0.28);
-  }}
-  .example-btn:hover {{ background: #9b1f18; }}
-  .example-btn:disabled {{ background: #d59993; cursor: default;
-                           box-shadow: none; }}
-  .example-btn:focus-visible {{ outline: 3px solid #16324f;
-                                outline-offset: 2px; }}
-  .tryhint {{ color: #555; font-size: .88rem; margin: .5rem auto 0;
-              max-width: 34rem; }}
-  .scope {{ background: #f0f7ff; border: 1px solid #b9d5f2;
-            border-radius: 8px; padding: .9rem 1.1rem; margin: 0 0 1.6rem; }}
-  .scope h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
-  .scope p {{ margin: .5rem 0; font-size: .93rem; }}
-  .example-url {{ background: #fff; border: 1px solid #cfe0f0;
-                  border-radius: 6px; padding: .5rem .7rem; }}
-  .example-url code {{ font-size: .84rem; word-break: break-all; }}
-  .note.finished {{ background: #ecfdf5; border: 1px solid #a7f3d0;
-                    border-left: 5px solid #059669;
-                    color: #065f46; font-weight: 600; }}
-
-  @media (max-width: 640px) {{
-    body {{
-      margin: 0; border-radius: 0; border-left: 0; border-right: 0;
-      padding: 1.1rem 1.05rem 2rem; box-shadow: none;
-      background: rgba(255, 255, 255, 0.94);
-    }}
-    h1 {{ font-size: 1.32rem; }}
-    h2 {{ font-size: 1rem; }}
-    /* 16px keeps iOS from zooming the page in when a field is tapped. */
+  @media (max-width: 900px) {{
+    .page {{ padding: 40px 22px 72px; }}
+    .masthead {{ grid-template-columns: 1fr; gap: 40px; }}
+    h1 {{ font-size: 36px; }}
+    h2 {{ font-size: 23px; margin-top: 40px; }}
+    /* 16px keeps iOS from zooming the page when a field is tapped. */
     textarea, input[type=email] {{ font-size: 16px; }}
-    textarea {{ height: 140px; }}
-    button, .example-btn {{ width: 100%; padding: .85rem 1rem; }}
-    .scope, .legend {{ padding: .85rem .9rem; }}
-    .doc .meta {{ font-size: .8rem; }}
-    /* A subject and its evidence stack rather than squeezing together. */
-    .subject {{ grid-template-columns: 1fr; gap: .1rem; }}
-    .evidence {{ text-align: left; }}
-    .keyrow {{ grid-template-columns: 4rem 1fr; gap: .6rem; }}
-    .plain, #searched p {{ word-break: break-word; }}
-    .note {{ font-size: .95rem; padding: .8rem .9rem; }}
+    #example {{ width: 100%; justify-content: center; }}
+    .doc li {{ grid-template-columns: 1fr; gap: 0; }}
+    .stars {{ display: block; }}
+    .caveat {{ font-size: 17px; }}
   }}
-  .legend {{ background: #fafafa; border: 1px solid #e5e5e5;
-             border-radius: 8px; padding: .9rem 1.1rem; margin-top: 1.6rem; }}
-  .legend h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
-  .legend p {{ margin: .5rem 0; font-size: .93rem; }}
-  .legend ul {{ margin: .4rem 0; padding-left: 1.3rem; font-size: .93rem; }}
-  .legend li {{ margin: .25rem 0; }}
-  .caveat {{ border-top: 1px solid #e5e5e5; padding-top: .6rem;
-             color: #555; }}
 </style>
 </head>
 <body>
-<h1>Which doctor is most widely published on your specific problem?</h1>
+<div class="page">
 
-<div class="intro">
-  <p><b>What does this tool do?</b> When you paste the web addresses of
-  hospital &ldquo;find a doctor&rdquo; pages, this tool reads every doctor
-  listed on them, looks each one up in PubMed (the national database of
-  medical research), and shows you the specific subjects each of them
-  publishes on (specific drugs, procedures, and clinical problems).</p>
-  <p>It works out on its own which condition the directory covers, so
-  there is nothing to choose or configure. A search takes a little while,
-  so you may see a message advising you to wait.</p>
-  <p>The results appear below as &ldquo;<b>Most prominent
-  researchers</b>.&rdquo; A complete spreadsheet (every doctor, every
-  subject, with exact paper counts) is also saved to the
-  <code>output</code> folder next to this program, and the full path is
-  printed at the bottom of the page when the search finishes.</p>
-</div>
+  <header class="masthead">
+    <div class="pitch">
+      <p class="eyebrow">PubMed &middot; hospital directories</p>
+      <h1>Which doctor is most widely published on your specific problem?</h1>
+      <p class="lede">Paste the web addresses of hospital &ldquo;find a
+        doctor&rdquo; pages. This tool reads every doctor listed on them,
+        looks each one up in <strong>PubMed</strong>, the national database
+        of medical research, and shows the specific subjects each of them
+        publishes on &mdash; particular drugs, procedures and clinical
+        problems.</p>
+      <p class="lede">It works out on its own which condition the directory
+        covers, so there is nothing to choose or configure.</p>
+      <div class="example-wrap">
+        <button id="example" onclick="runExample()">Click to see an example
+          search <span aria-hidden="true">&rarr;</span></button>
+        <p class="example-note">An inflammatory bowel disease centre
+          &middot; sixteen doctors</p>
+      </div>
+    </div>
 
-<div class="trybox">
-  <button id="example" class="example-btn" onclick="runExample()">
-    Click here to run an example search</button>
-  <p class="tryhint">Searches an inflammatory bowel disease centre with
-    sixteen doctors listed.</p>
-</div>
+    <div class="task">
+      <div class="field">
+        <div class="fieldhead">
+          <label for="urls">Specialist pages</label>
+          <span class="counter">up to {max_urls}</span>
+        </div>
+        <textarea id="urls" placeholder="https://hospital.org/find-a-doctor/pulmonology; https://hospital.org/find-a-doctor/pulmonology?page=2"></textarea>
+        <p class="help">Separate several with semicolons. A directory split
+          across pages needs a link for each page &mdash; two pages of
+          pulmonologists means two links.</p>
+      </div>
 
-<div class="scope">
-  <h3>What to paste, and what not to</h3>
-  <p><b>Best results:</b> a page from a <b>research hospital or medical
-  school</b> that lists doctors by name &mdash; a department's team page,
-  or a condition centre's list of specialists. These are the places where
-  doctors both treat patients and publish research, which is what this
-  tool measures. A page that works well looks like this:</p>
-  <p class="example-url"><code>https://nyulangone.org/locations/inflammatory-bowel-disease-center</code></p>
-  <p><b>Won't work &mdash; booking sites.</b> Zocdoc, Healthgrades, Vitals
-  and similar services are not supported yet. Their pages are built for
-  booking appointments and are too large and complex for this tool to
-  read, and their listings identify a practice rather than a hospital,
-  which is what makes a research search possible.</p>
-  <p><b>Works, but expect little &mdash; small local practices.</b> You can
-  paste a private practice's page and it will run. Most community doctors
-  do not publish research at all, so the usual result is
-  &ldquo;too little published research to profile&rdquo;. That is a real
-  answer, not a fault &mdash; but it is not what this tool is designed to
-  find, and an excellent local doctor will look identical to a poor one
-  here.</p>
-  <p><b>Won't work &mdash; a hospital's front page or its list of
-  departments.</b> Those name specialties, not people. Click through to
-  the specialty you care about first, then paste that page.</p>
-</div>
+      <div class="field" id="emailbox" style="{email_display}">
+        <div class="fieldhead">
+          <label for="email">Your email</label>
+        </div>
+        <input type="email" id="email" value="{email}" required
+               placeholder="you@example.com">
+        <p class="help">The research database requires a contact address
+          with every search. It is used for nothing else.</p>
+      </div>
 
-<h2>Step 1 &mdash; Directory pages</h2>
-<p>Enter the URL for every hospital directory you'd like to search,
-separated by semicolons ( <b>;</b> ).</p>
-<div class="reminder"><b>Reminder:</b> you may need to provide a separate
-link for every <i>page</i> of a directory. If there are two pages of
-pulmonologists, provide a URL for each page.<br>
-<span class="limit">Up to {max_urls} pages per search. Each link must be a
-hospital or medical school page listing doctors by name.</span></div>
-<textarea id="urls" placeholder="https://hospital.org/find-a-doctor/pulmonology; https://hospital.org/find-a-doctor/pulmonology?page=2"></textarea>
+      <div class="act">
+        <button id="run" onclick="start()">Search</button>
+        <p class="act-note">Keep this tab open until the results appear</p>
+      </div>
+    </div>
+  </header>
 
-<div id="emailbox" style="{email_display}">
-  <h2>Your email <span class="required">required</span></h2>
-  <p class="hint">The medical research database requires a contact address
-  with every search. It is used for nothing else.</p>
-  <input type="email" id="email" value="{email}" required
-         placeholder="you@example.com">
-</div>
+  <div id="note"></div>
+  <div id="results"></div>
+  <div id="thin"></div>
+  <div id="searched"></div>
 
-<h2>Step 2 &mdash; Run</h2>
-<button id="run" onclick="start()">Run</button>
+  <section class="docs">
+    <details>
+      <summary>What to paste, and what won&rsquo;t work</summary>
+      <div class="disclosure">
+        <p><span class="rule-label">Works</span><br>
+          A page from a <strong>research hospital or medical school</strong>
+          that lists doctors by name &mdash; a department&rsquo;s team page,
+          or a condition centre&rsquo;s list of specialists. These are the
+          places where doctors both treat patients and publish research,
+          which is what this tool measures.</p>
+        <p><code>https://nyulangone.org/locations/inflammatory-bowel-disease-center</code></p>
+        <p><span class="rule-label">Won&rsquo;t</span><br>
+          A hospital&rsquo;s front page or its list of departments. Those
+          name specialties, not people &mdash; click through to the
+          specialty you care about first, then paste that page.</p>
+        <p><span class="rule-label">Not yet</span><br>
+          Booking sites. Zocdoc, Healthgrades, Vitals and similar services
+          are not supported: their pages are built for appointments and are
+          too large for this tool to read, and their listings identify a
+          practice rather than a hospital, which is what makes a research
+          search possible.</p>
+        <p><span class="rule-label">Thin results</span><br>
+          Small local practices will run, but most community doctors do not
+          publish research at all, so the usual answer is &ldquo;too little
+          published research to profile&rdquo;. That is a real answer, not a
+          fault &mdash; but an excellent local doctor will look identical to
+          a poor one here.</p>
+      </div>
+    </details>
 
-<!-- Status sits directly under the button, above the reading guide: while
-     a search runs this is the only thing telling the user it started, and
-     below the guide it was off-screen exactly when it mattered. -->
-<div id="note"></div>
+    <details>
+      <summary>How to read the results</summary>
+      <div class="disclosure">
+        <p>Each doctor is listed with the subjects they publish on,
+          <strong>most distinctive first</strong>.</p>
+        <p>The list is not simply ordered by who publishes most. A subject
+          that nearly everyone in the group writes about cannot tell you who
+          to see, so it is pushed down; a subject that sets one doctor apart
+          from their colleagues is pushed up.</p>
+        <p>Say you search an epilepsy centre. Every doctor there publishes on
+          seizures and on brain scans, so those subjects say nothing about
+          any one of them. But if one doctor has written nine papers on a
+          particular drug and nobody else has written any, that rises to the
+          top of their list &mdash; because it is the thing that makes them
+          different from the colleague in the next office.</p>
+        <p><strong>Asterisks mark first-authored papers.</strong> One per
+          paper on that subject where the doctor was the <em>first</em>
+          author.</p>
+        <ul>
+          <li><span class="stars">&lowast;&lowast;&lowast;</span> &mdash;
+            three first-authored papers on that subject.</li>
+          <li><span class="stars">&lowast;x12</span> &mdash; twelve of them.
+            Past five the count replaces the marks, so a number means
+            <strong>more</strong>, not less.</li>
+          <li>No marks &mdash; the doctor contributed without being first
+            author, which is common on large multi-centre studies.</li>
+        </ul>
+        <p>First authorship usually means the work was that person&rsquo;s to
+          drive rather than one name among many. A doctor with 30 papers and
+          many first-authored ones is often running their own programme; one
+          with 300 and few may be a senior collaborator on other
+          people&rsquo;s studies. Both are accomplished &mdash; they are
+          different things.</p>
+      </div>
+    </details>
+  </section>
 
-<div class="legend">
-  <h3>How to read the results</h3>
-  <p>Each doctor is listed with the subjects they publish on, <b>most
-  distinctive first</b>.</p>
-  <p><b>What &ldquo;most distinctive&rdquo; means.</b> The list is not
-  simply ordered by who publishes most. A subject that nearly everyone in
-  the group writes about cannot tell you who to see, so it is pushed down;
-  a subject that sets one doctor apart from their colleagues is pushed
-  up.</p>
-  <p>Say you search an epilepsy centre. Every doctor there publishes on
-  seizures and on brain scans, so those subjects say nothing about any one
-  of them. But if one doctor has written nine papers on a particular
-  drug and nobody else has written any, that rises to the top of their
-  list &mdash; because it is the thing that makes them different from the
-  colleague in the next office.</p>
-  <p>So a subject near the top means <i>this doctor in particular</i>
-  works on it, not merely that they have published a lot. Both matter, and
-  the paper count beside each name tells you the volume.</p>
-  <p><b>Asterisks mark first-authored papers.</b> One asterisk per paper
-  on that subject where the doctor was the <i>first</i> author:</p>
-  <ul>
-    <li><span class="stars">&lowast;&lowast;&lowast;</span> &mdash; three
-    first-authored papers on that subject.</li>
-    <li><span class="stars">&lowast;x12</span> &mdash; twelve of them. Past
-    five, the count replaces the row of asterisks so the list stays
-    readable. <b>A number means more, not less.</b></li>
-    <li>No asterisks &mdash; the doctor contributed to papers on that
-    subject without being first author, which is common on large
-    multi-center studies.</li>
-  </ul>
-  <p>First authorship usually means the work was that person's to drive,
-  rather than one name among many. A doctor with 30 papers and many
-  first-authored ones is often running their own research program; one
-  with 300 papers and few may be a senior collaborator on other people's
-  studies. Both are accomplished &mdash; they are different things.</p>
   <p class="caveat">Publishing is not the same as clinical skill. A doctor
-  with no papers at all may be the better choice for your care. This shows
-  what someone researches, which is a different question &mdash; use it as
-  a starting point for conversation, not a verdict.</p>
-</div>
+    with no papers at all may be the better choice for your care &mdash;
+    this shows what someone researches, which is a different question.</p>
 
-<div id="results"></div>
-<div id="thin"></div>
-<div id="searched"></div>
+</div>
 
 <script>
 const TOKEN = "{token}";
