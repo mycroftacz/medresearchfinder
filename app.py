@@ -84,7 +84,8 @@ def new_run():
         RUNS[run_id] = {"lines": [], "done": False, "results": [],
                         "progress": "", "note": "", "doctors": [],
                         "csv": "", "condition": "", "problems": [],
-                        "detail": "", "thin": [], "broad": False}
+                        "detail": "", "thin": [], "broad": False,
+                        "pct": -1}
         # Keep the history short, but never discard a run that is still
         # going: evicting it lost the page's only handle on its own search
         # ("this run is no longer available" mid-search) and let the
@@ -200,8 +201,38 @@ PAGE = """<!DOCTYPE html>
            background: #1d4ed8; color: #fff; border: 0; border-radius: 6px;
            cursor: pointer; }}
   button:disabled {{ background: #93a6d8; cursor: default; }}
-  .note {{ background: #f6f6f6; border-radius: 6px; padding: .7rem .9rem;
-           color: #444; font-size: .93rem; margin: 1.2rem 0 0; }}
+  .note {{
+    display: flex; align-items: center; gap: .8rem;
+    background: #eaf3fd; border: 1px solid #b9d7f2;
+    border-left: 5px solid #1d4ed8;
+    border-radius: 8px; padding: .95rem 1.1rem; margin: 1.2rem 0 0;
+    color: #16324f; font-size: 1rem; font-weight: 500;
+    box-shadow: 0 1px 10px rgba(31, 74, 120, 0.10);
+  }}
+  /* A live dot: a search runs for minutes, and a static line of text
+     gives no sign that anything is still happening. */
+  .note.working::before {{
+    content: ""; flex: none; width: .72rem; height: .72rem;
+    border-radius: 50%; background: #1d4ed8;
+    animation: pulse 1.4s ease-in-out infinite;
+  }}
+  @keyframes pulse {{
+    0%, 100% {{ opacity: 1; transform: scale(1); }}
+    50%      {{ opacity: .3; transform: scale(.7); }}
+  }}
+  @media (prefers-reduced-motion: reduce) {{
+    .note.working::before {{ animation: none; }}
+  }}
+  .notebody {{ flex: 1; min-width: 0; }}
+  .track {{
+    height: 7px; background: #cfe2f6; border-radius: 4px;
+    margin-top: .55rem; overflow: hidden;
+  }}
+  .fill {{
+    height: 100%; background: #1d4ed8; border-radius: 4px;
+    transition: width .5s ease;
+  }}
+
   #results {{ margin-top: 1.5rem; }}
   #results h2, #searched h2, #thin h2 {{ border-bottom: 2px solid #1a1a1a;
                                           padding-bottom: .25rem; }}
@@ -242,7 +273,7 @@ PAGE = """<!DOCTYPE html>
   .intro {{ border-left: 3px solid #d4d4d8; padding-left: .9rem;
             margin: 1rem 0 1.6rem; }}
   .intro p {{ margin: .5rem 0; }}
-  .trybox {{ margin: 0 0 1.6rem; }}
+  .trybox {{ margin: 0 0 1.6rem; text-align: center; }}
   .example-btn {{
     margin: 0; padding: .7rem 1.5rem; font-size: 1rem; font-weight: 600;
     background: #b3261e; color: #fff; border: 0; border-radius: 6px;
@@ -253,7 +284,8 @@ PAGE = """<!DOCTYPE html>
                            box-shadow: none; }}
   .example-btn:focus-visible {{ outline: 3px solid #16324f;
                                 outline-offset: 2px; }}
-  .tryhint {{ color: #555; font-size: .88rem; margin: .5rem 0 0; }}
+  .tryhint {{ color: #555; font-size: .88rem; margin: .5rem auto 0;
+              max-width: 34rem; }}
   .scope {{ background: #f0f7ff; border: 1px solid #b9d5f2;
             border-radius: 8px; padding: .9rem 1.1rem; margin: 0 0 1.6rem; }}
   .scope h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
@@ -263,6 +295,7 @@ PAGE = """<!DOCTYPE html>
   .example-url code {{ font-size: .84rem; word-break: break-all; }}
   .example-why {{ color: #555; font-size: .85rem; }}
   .note.finished {{ background: #ecfdf5; border: 1px solid #a7f3d0;
+                    border-left: 5px solid #059669;
                     color: #065f46; font-weight: 600; }}
   .legend {{ background: #fafafa; border: 1px solid #e5e5e5;
              border-radius: 8px; padding: .9rem 1.1rem; margin-top: 1.6rem; }}
@@ -515,8 +548,9 @@ async function start() {{
   }}
   // Only now is a search genuinely under way.
   document.getElementById('note').innerHTML =
-    '<p class="note">Gathering data, do not refresh this page, ' +
-    'this may take a few minutes :)</p>';
+    '<div class="note working"><div class="notebody">Starting the ' +
+    'search. Please keep this page open.<div class="track">' +
+    '<div class="fill" style="width:2%"></div></div></div></div>';
   rememberRun(info.run);
   poll();
 }}
@@ -583,10 +617,21 @@ async function poll() {{
   const message = data.done ? data.note : (data.progress || data.note ||
       'Gathering data, do not refresh this page, this may take a few ' +
       'minutes :)');
-  const noteClass = data.done ? 'note finished' : 'note';
-  document.getElementById('note').innerHTML =
-    message ? '<p class="' + noteClass + '">' +
-              (data.done ? '&#10003; ' : '') + esc(message) + '</p>' : '';
+  if (message) {{
+    const running = !data.done;
+    const cls = data.done ? 'note finished' : 'note working';
+    // Show how far along it is, not just that it is going. Eight minutes
+    // of an unchanging sentence is indistinguishable from a stall.
+    const bar = (running && data.pct >= 0)
+      ? '<div class="track"><div class="fill" style="width:' +
+        Math.max(2, Math.min(100, data.pct)) + '%"></div></div>' : '';
+    document.getElementById('note').innerHTML =
+      '<div class="' + cls + '"><div class="notebody">' +
+      (data.done ? '&#10003; ' : '') + esc(message) + bar +
+      '</div></div>';
+  }} else {{
+    document.getElementById('note').innerHTML = '';
+  }}
 
   if (data.results && data.results.length) {{
     // Deliberately no condition banner: it named a single specialty even
@@ -808,7 +853,9 @@ def pipeline(run_id, urls, email):
             Entrez.api_key = os.environ["NCBI_API_KEY"]
 
         api_key = directory_scraper.get_api_key()
-        set_field(run_id, progress=f"Reading {len(urls)} directory page(s)...")
+        set_field(run_id,
+                  progress=f"Reading {len(urls)} directory page(s)...",
+                  pct=0)
         log(f"Reading {len(urls)} directory page(s) ...")
         rows, detected, rejected = directory_scraper.build_roster(
             urls, api_key, log=log)
@@ -833,9 +880,9 @@ def pipeline(run_id, urls, email):
 
         def progress(done, total):
             set_field(run_id,
-                      progress=f"Gathering data — searched {done} of "
-                               f"{total} doctors. Do not refresh this "
-                               f"page, this may take a few minutes :)")
+                      progress=f"Searching PubMed — {done} of {total} "
+                               f"doctors done. Please keep this page open.",
+                      pct=int(round(100 * done / max(total, 1))))
 
         csv_path, result_rows, thin = profiler.run_auto(
             detected, researchers, out_dir, log=log, on_progress=progress)
@@ -945,6 +992,7 @@ class Handler(BaseHTTPRequestHandler):
                             "condition": run.get("condition", ""),
                             "note": run.get("note", ""),
                             "progress": run.get("progress", ""),
+                            "pct": run.get("pct", -1),
                             "problems": list(run.get("problems", [])),
                             "detail": run.get("detail", ""),
                             "thin": list(run.get("thin", [])),
@@ -956,6 +1004,7 @@ class Handler(BaseHTTPRequestHandler):
                            {"done": True, "results": [], "doctors": [],
                             "csv": "", "condition": "", "problems": [],
                             "detail": "", "thin": [], "progress": "", "broad": False,
+                            "pct": -1,
                             "local": not os.environ.get("PORT"),
                             "note": "This run is no longer available. "
                                     "Press Run to start a new one."})
