@@ -1,0 +1,21 @@
+# Deployment for Render (render.com). Connect this repo, and Render reads
+# this file. Set FIRECRAWL_API_KEY, NCBI_EMAIL and PUBLIC_HOST in the
+# dashboard -- never in this file, which is public.
+services:
+  - type: web
+    name: medresearchfinder
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: FIRECRAWL_API_KEY
+        sync: false          # set in the dashboard
+      - key: NCBI_EMAIL
+        sync: false
+      - key: NCBI_API_KEY
+        sync: false          # optional; triples the PubMed rate
+      - key: PUBLIC_HOST
+        sync: false          # e.g. medresearchfinder.onrender.com
+      - key: PYTHON_VERSION
+        value: "3.11.9"

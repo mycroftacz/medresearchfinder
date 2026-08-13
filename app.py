@@ -47,6 +47,13 @@ MAX_ACTIVE_RUNS = 1
 # email. Requests must carry a token that only the page we served knows.
 SESSION_TOKEN = secrets.token_urlsafe(32)
 
+# Hosts this server will answer to. Loopback covers running it on your own
+# machine; PUBLIC_HOST adds the deployed name (set it to the hostname the
+# host gives you, e.g. medresearchfinder.onrender.com).
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+for _extra in (os.environ.get("PUBLIC_HOST", "")).replace(",", " ").split():
+    ALLOWED_HOSTS.add(_extra.strip().lower())
+
 
 def new_run():
     global _RUN_SEQ
@@ -497,8 +504,17 @@ async function poll() {{
     let tail = '<h2>Doctors searched</h2><p class="plain">' +
                data.doctors.map(esc).join('<br>') + '</p>';
     if (data.csv) {{
-      tail += '<p class="plain">Full results saved to:<br>' +
-              esc(data.csv) + '</p>';
+      // A file path is only useful to whoever owns the machine. Offer the
+      // spreadsheet as a download, and mention the path only when the
+      // program is running on the reader's own computer.
+      tail += '<p class="plain"><a href="/results?run=' +
+              encodeURIComponent(RUN_ID) + '" download>Download the full ' +
+              'spreadsheet</a> — every doctor, every subject, exact ' +
+              'paper counts.</p>';
+      if (data.local) {{
+        tail += '<p class="plain">Saved on this computer at:<br>' +
+                esc(data.csv) + '</p>';
+      }}
     }}
     document.getElementById('searched').innerHTML = tail;
   }}
@@ -769,6 +785,34 @@ class Handler(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         if path == "/":
             self._send(render_page())
+        elif path == "/results":
+            run_id = parse_qs(query).get("run", [""])[0]
+            with LOCK:
+                run = RUNS.get(run_id)
+                csv_path = run.get("csv", "") if run else ""
+            # Only ever serve the file this run wrote, inside the output
+            # folder: the run id is the authorisation, and the path is
+            # never taken from the request.
+            out_dir = os.path.realpath(os.path.join(HERE, "output"))
+            real = os.path.realpath(csv_path) if csv_path else ""
+            if not real or not real.startswith(out_dir + os.sep) \
+                    or not os.path.isfile(real):
+                self._send("no results file for that search", code=404)
+                return
+            try:
+                with open(real, "rb") as fh:
+                    body = fh.read()
+            except OSError:
+                self._send("results file could not be read", code=404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition",
+                             "attachment; filename=\"" +
+                             os.path.basename(real) + "\"")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif path == "/log":
             run_id = parse_qs(query).get("run", [""])[0]
             with LOCK:
@@ -783,10 +827,13 @@ class Handler(BaseHTTPRequestHandler):
                             "thin": list(run.get("thin", [])),
                             "broad": run.get("broad", False),
                             "doctors": list(run.get("doctors", [])),
-                            "csv": run.get("csv", "")} if run else
+                            "csv": run.get("csv", ""),
+                            "local": not os.environ.get("PORT")}
+                           if run else
                            {"done": True, "results": [], "doctors": [],
                             "csv": "", "condition": "", "problems": [],
                             "detail": "", "thin": [], "progress": "", "broad": False,
+                            "local": not os.environ.get("PORT"),
                             "note": "This run is no longer available. "
                                     "Press Run to start a new one."})
             self._send(json.dumps(payload), "application/json")
@@ -794,14 +841,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send("not found", code=404)
 
     def _own_page(self):
-        """Reject anything not coming from the page this server served.
+        """Reject anything not addressed to this server by a name it knows.
 
         A browser will happily post a form from any site to localhost, and
         a stale DNS name can resolve here too, so both the token and the
-        Host header are checked.
+        Host header are checked. When deployed, the public hostname is the
+        legitimate one -- without it here, every search on a hosted copy
+        answers 403 and the tool looks broken.
         """
-        host = (self.headers.get("Host") or "").split(":")[0]
-        return host in ("127.0.0.1", "localhost", "[::1]", "::1")
+        host = (self.headers.get("Host") or "").split(":")[0].lower()
+        return host in ALLOWED_HOSTS
 
     def do_POST(self):
         if self.path != "/run":
@@ -863,11 +912,26 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     directory_scraper.load_env()
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    url = f"http://127.0.0.1:{server.server_port}"
-    print(f"Med Research Finder: {url}")
-    print("(Press Ctrl+C to quit.)")
-    webbrowser.open(url)
+
+    # A hosting service hands the port over in the environment. Its
+    # presence is what distinguishes "deployed" from "run on my laptop":
+    # deployed means listen on every interface and do not try to open a
+    # browser on a machine that has no screen.
+    port_from_host = os.environ.get("PORT")
+    if port_from_host:
+        server = ThreadingHTTPServer(("0.0.0.0", int(port_from_host)),
+                                     Handler)
+        print(f"Med Research Finder listening on port {port_from_host}")
+        if not os.environ.get("PUBLIC_HOST"):
+            print("WARNING: set PUBLIC_HOST to this service's hostname, or "
+                  "every search will be refused as a cross-site request.")
+    else:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        url = f"http://127.0.0.1:{server.server_port}"
+        print(f"Med Research Finder: {url}")
+        print("(Press Ctrl+C to quit.)")
+        webbrowser.open(url)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

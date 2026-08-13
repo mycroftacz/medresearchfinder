@@ -163,6 +163,39 @@ Jordan Axelrad,Axelrad J,NYU Langone|NYU|New York University,
   University" and zero under "NYU Langone". The scraper fills these in.
 - `notes` and any other extra column are ignored by the program.
 
+## Putting it online
+
+The program runs on your own machine by default. To let someone else try
+it without installing anything, deploy it and send them the address.
+
+It is built for a handful of people you invite, not the open web. Whoever
+opens the link spends **your** Firecrawl credits and searches PubMed under
+**your** contact address, and there is no login.
+
+Using [Render](https://render.com), whose free tier is enough:
+
+1. Connect this repository as a new **Web Service**. `render.yaml` sets the
+   build and start commands.
+2. Set these environment variables in the dashboard — never in the repo:
+
+   | Variable | Value |
+   |---|---|
+   | `FIRECRAWL_API_KEY` | your Firecrawl key |
+   | `NCBI_EMAIL` | the address PubMed requires |
+   | `PUBLIC_HOST` | the hostname Render gives you, e.g. `medresearchfinder.onrender.com` |
+   | `NCBI_API_KEY` | optional, and searches run three times faster with it |
+
+3. Deploy, then open the address and run a search to confirm it works.
+
+**`PUBLIC_HOST` is not optional.** Requests are rejected unless they are
+addressed to a hostname the server knows, which is what stops another
+website from starting searches on your account. Without it every search
+answers 403 and the page looks broken.
+
+Two things to expect on a free tier: the service sleeps after about
+fifteen minutes idle and takes a moment to wake, and searches run one at a
+time, so a second visitor arriving mid-search is asked to wait.
+
 ## Tests
 
 ```bash
