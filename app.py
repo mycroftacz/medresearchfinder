@@ -293,7 +293,6 @@ PAGE = """<!DOCTYPE html>
   .example-url {{ background: #fff; border: 1px solid #cfe0f0;
                   border-radius: 6px; padding: .5rem .7rem; }}
   .example-url code {{ font-size: .84rem; word-break: break-all; }}
-  .example-why {{ color: #555; font-size: .85rem; }}
   .note.finished {{ background: #ecfdf5; border: 1px solid #a7f3d0;
                     border-left: 5px solid #059669;
                     color: #065f46; font-weight: 600; }}
@@ -330,8 +329,7 @@ PAGE = """<!DOCTYPE html>
   <button id="example" class="example-btn" onclick="runExample()">
     Click here to run an example search</button>
   <p class="tryhint">Searches an inflammatory bowel disease centre with
-    sixteen doctors listed. It takes about eight minutes &mdash; the page
-    reports its progress while it works.</p>
+    sixteen doctors listed.</p>
 </div>
 
 <div class="scope">
@@ -341,9 +339,7 @@ PAGE = """<!DOCTYPE html>
   or a condition centre's list of specialists. These are the places where
   doctors both treat patients and publish research, which is what this
   tool measures. A page that works well looks like this:</p>
-  <p class="example-url"><code>https://nyulangone.org/locations/inflammatory-bowel-disease-center</code><br>
-  <span class="example-why">&mdash; one condition, one hospital, doctors
-  listed by name.</span></p>
+  <p class="example-url"><code>https://nyulangone.org/locations/inflammatory-bowel-disease-center</code></p>
   <p><b>Won't work &mdash; booking sites.</b> Zocdoc, Healthgrades, Vitals
   and similar services are not supported yet. Their pages are built for
   booking appointments and are too large and complex for this tool to
