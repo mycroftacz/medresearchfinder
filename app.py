@@ -19,6 +19,7 @@ import json
 import os
 import re
 import secrets
+import sys
 import threading
 import urllib.error
 import webbrowser
@@ -1079,6 +1080,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Python block-buffers stdout when it is a pipe rather than a
+    # terminal, which is exactly what a hosting service gives it. Startup
+    # diagnostics then sit in a buffer a server never flushes, because it
+    # never exits -- so the notes below were invisible in the one place
+    # they were written for.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except AttributeError:                     # very old Python
+        pass
+
     directory_scraper.load_env()
 
     # A hosting service hands the port over in the environment. Its
