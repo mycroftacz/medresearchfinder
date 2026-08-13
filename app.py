@@ -342,7 +342,7 @@ PAGE = """<!DOCTYPE html>
   details > summary::after {{ content: "+"; color: #E8B25C;
                               font-family: "IBM Plex Mono", monospace;
                               font-size: 17px; }}
-  details[open] > summary::after {{ content: "\2212"; }}
+  details[open] > summary::after {{ content: "−"; }}
   .disclosure {{ padding: 0 0 24px; max-width: 68ch; }}
   .disclosure p {{ margin: 0 0 12px; font-size: 15px; line-height: 1.62;
                    color: #A9AECB; }}
