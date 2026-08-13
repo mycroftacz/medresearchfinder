@@ -242,6 +242,18 @@ PAGE = """<!DOCTYPE html>
   .intro {{ border-left: 3px solid #d4d4d8; padding-left: .9rem;
             margin: 1rem 0 1.6rem; }}
   .intro p {{ margin: .5rem 0; }}
+  .trybox {{ margin: 0 0 1.6rem; }}
+  .example-btn {{
+    margin: 0; padding: .7rem 1.5rem; font-size: 1rem; font-weight: 600;
+    background: #b3261e; color: #fff; border: 0; border-radius: 6px;
+    cursor: pointer; box-shadow: 0 1px 6px rgba(179, 38, 30, 0.28);
+  }}
+  .example-btn:hover {{ background: #9b1f18; }}
+  .example-btn:disabled {{ background: #d59993; cursor: default;
+                           box-shadow: none; }}
+  .example-btn:focus-visible {{ outline: 3px solid #16324f;
+                                outline-offset: 2px; }}
+  .tryhint {{ color: #555; font-size: .88rem; margin: .5rem 0 0; }}
   .scope {{ background: #f0f7ff; border: 1px solid #b9d5f2;
             border-radius: 8px; padding: .9rem 1.1rem; margin: 0 0 1.6rem; }}
   .scope h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
@@ -279,6 +291,14 @@ PAGE = """<!DOCTYPE html>
   subject, with exact paper counts) is also saved to the
   <code>output</code> folder next to this program, and the full path is
   printed at the bottom of the page when the search finishes.</p>
+</div>
+
+<div class="trybox">
+  <button id="example" class="example-btn" onclick="runExample()">
+    Click here to run an example search</button>
+  <p class="tryhint">Searches an inflammatory bowel disease centre with
+    sixteen doctors listed. It takes about eight minutes &mdash; the page
+    reports its progress while it works.</p>
 </div>
 
 <div class="scope">
@@ -383,6 +403,7 @@ hospital or medical school page listing doctors by name.</span></div>
 const TOKEN = "{token}";
 let RUN_ID = null;
 let ANNOUNCED = false;   // scroll to the results only once per run
+let BUSY = false;        // a second click must not start a second search
 
 // The page tells people not to refresh, but a ten-minute search should not
 // be lost to a stray reload: the run lives on the server, so remember its
@@ -411,7 +432,38 @@ function showProblems(list) {{
     '</ul></div>';
 }}
 
+const EXAMPLE_URL =
+  'https://nyulangone.org/locations/inflammatory-bowel-disease-center';
+
+async function runExample() {{
+  if (BUSY) return;
+  document.getElementById('urls').value = EXAMPLE_URL;
+  const emailEl = document.getElementById('email');
+  const emailBox = document.getElementById('emailbox');
+  const emailAsked = emailEl && emailBox &&
+                     emailBox.style.display !== 'none';
+
+  // The research database insists on a contact address, so an example
+  // search cannot skip it. Fill the address in, then say exactly what is
+  // still missing rather than failing silently.
+  if (emailAsked &&
+      !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailEl.value.trim())) {{
+    showProblems(['The example page is filled in above. Add your email ' +
+                  'address and the search will start.']);
+    emailEl.scrollIntoView({{behavior: 'auto', block: 'center'}});
+    emailEl.focus();
+    return;
+  }}
+
+  await start();
+  // Take them to the progress line; when it finishes, poll() carries them
+  // on to the results.
+  document.getElementById('note')
+          .scrollIntoView({{behavior: 'auto', block: 'center'}});
+}}
+
 async function start() {{
+  if (BUSY) return;
   // Check here before anything is sent. The page used to paint
   // "Gathering data..." the instant Run was pressed, so a search refused
   // for a missing email looked like a search that had started and then
@@ -440,7 +492,9 @@ async function start() {{
 
   const body = new URLSearchParams({{urls: urls, email: email,
                                     token: TOKEN}});
+  BUSY = true;
   document.getElementById('run').disabled = true;
+  document.getElementById('example').disabled = true;
   document.getElementById('results').innerHTML = '';
   document.getElementById('thin').innerHTML = '';
   document.getElementById('searched').innerHTML = '';
@@ -451,7 +505,9 @@ async function start() {{
   if (!info.ok) {{
     // The server refused it; poll once so its reason is displayed
     // instead of a progress note for a search that never began.
+    BUSY = false;
     document.getElementById('run').disabled = false;
+    document.getElementById('example').disabled = false;
     if (info.run) {{ RUN_ID = info.run; poll(); }}
     else showProblems(['That search could not be started. Please reload ' +
                        'the page and try again.']);
@@ -504,7 +560,9 @@ async function poll() {{
     document.getElementById('note').innerHTML =
       '<div class="problem"><b>That didn\\'t work.</b><ul>' + items +
       '</ul>' + detail + '</div>';
+    BUSY = false;
     document.getElementById('run').disabled = false;
+    document.getElementById('example').disabled = false;
     forgetRun();
     document.title = 'Which doctor is most published?';
     if (!ANNOUNCED) {{
@@ -583,7 +641,9 @@ async function poll() {{
   }}
 
   if (data.done) {{
+    BUSY = false;
     document.getElementById('run').disabled = false;
+    document.getElementById('example').disabled = false;
     forgetRun();
     // Completion has to announce itself: the results render below the
     // fold, and a new user has no reason to know to scroll. The tab
