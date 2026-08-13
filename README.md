@@ -182,15 +182,16 @@ Using [Render](https://render.com), whose free tier is enough:
    |---|---|
    | `FIRECRAWL_API_KEY` | your Firecrawl key |
    | `NCBI_EMAIL` | the address PubMed requires |
-   | `PUBLIC_HOST` | the hostname Render gives you, e.g. `medresearchfinder.onrender.com` |
    | `NCBI_API_KEY` | optional, and searches run three times faster with it |
 
 3. Deploy, then open the address and run a search to confirm it works.
 
-**`PUBLIC_HOST` is not optional.** Requests are rejected unless they are
-addressed to a hostname the server knows, which is what stops another
-website from starting searches on your account. Without it every search
-answers 403 and the page looks broken.
+You do not need to tell it its own address. Requests are refused unless
+addressed to a hostname the server recognises — that is what stops another
+website from starting searches on your account — and Render passes its
+hostname to the program itself. On a host that does not, set `PUBLIC_HOST`
+to the address people visit. The startup log prints which hostnames it
+will answer to, and says so plainly if it knows none.
 
 Two things to expect on a free tier: the service sleeps after about
 fifteen minutes idle and takes a moment to wake, and searches run one at a

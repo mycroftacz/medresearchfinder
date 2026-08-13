@@ -48,11 +48,28 @@ MAX_ACTIVE_RUNS = 1
 SESSION_TOKEN = secrets.token_urlsafe(32)
 
 # Hosts this server will answer to. Loopback covers running it on your own
-# machine; PUBLIC_HOST adds the deployed name (set it to the hostname the
-# host gives you, e.g. medresearchfinder.onrender.com).
+# machine. A hosting service knows its own address and passes it in, which
+# is better than asking someone to copy it into a settings page -- the
+# hostname is not knowable until the service exists, and getting it wrong
+# refuses every search.
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
-for _extra in (os.environ.get("PUBLIC_HOST", "")).replace(",", " ").split():
-    ALLOWED_HOSTS.add(_extra.strip().lower())
+
+def _register_host(value):
+    for name in (value or "").replace(",", " ").split():
+        name = name.strip().lower()
+        if "//" in name:                      # a full URL was supplied
+            name = name.split("//", 1)[1]
+        name = name.split("/")[0].split(":")[0]
+        if name:
+            ALLOWED_HOSTS.add(name)
+
+for _source in ("RENDER_EXTERNAL_HOSTNAME",   # Render sets this itself
+                "RENDER_EXTERNAL_URL",
+                "FLY_APP_NAME",
+                "PUBLIC_HOST"):               # manual override, any host
+    _register_host(os.environ.get(_source, ""))
+if os.environ.get("FLY_APP_NAME"):
+    ALLOWED_HOSTS.add(f"{os.environ['FLY_APP_NAME']}.fly.dev".lower())
 
 
 def new_run():
@@ -922,9 +939,15 @@ def main():
         server = ThreadingHTTPServer(("0.0.0.0", int(port_from_host)),
                                      Handler)
         print(f"Med Research Finder listening on port {port_from_host}")
-        if not os.environ.get("PUBLIC_HOST"):
-            print("WARNING: set PUBLIC_HOST to this service's hostname, or "
-                  "every search will be refused as a cross-site request.")
+        known = sorted(h for h in ALLOWED_HOSTS
+                       if h not in ("127.0.0.1", "localhost",
+                                    "[::1]", "::1"))
+        if known:
+            print(f"Answering to: {', '.join(known)}")
+        else:
+            print("WARNING: this service's public hostname is unknown, so "
+                  "every search will be refused. Set PUBLIC_HOST to the "
+                  "address people visit.")
     else:
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         url = f"http://127.0.0.1:{server.server_port}"
