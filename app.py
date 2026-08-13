@@ -154,6 +154,7 @@ PAGE = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Which doctor is most published?</title>
 <style>
   html {{
@@ -297,6 +298,28 @@ PAGE = """<!DOCTYPE html>
   .note.finished {{ background: #ecfdf5; border: 1px solid #a7f3d0;
                     border-left: 5px solid #059669;
                     color: #065f46; font-weight: 600; }}
+
+  @media (max-width: 640px) {{
+    body {{
+      margin: 0; border-radius: 0; border-left: 0; border-right: 0;
+      padding: 1.1rem 1.05rem 2rem; box-shadow: none;
+      background: rgba(255, 255, 255, 0.94);
+    }}
+    h1 {{ font-size: 1.32rem; }}
+    h2 {{ font-size: 1rem; }}
+    /* 16px keeps iOS from zooming the page in when a field is tapped. */
+    textarea, input[type=email] {{ font-size: 16px; }}
+    textarea {{ height: 140px; }}
+    button, .example-btn {{ width: 100%; padding: .85rem 1rem; }}
+    .scope, .legend {{ padding: .85rem .9rem; }}
+    .doc .meta {{ font-size: .8rem; }}
+    /* A subject and its evidence stack rather than squeezing together. */
+    .subject {{ grid-template-columns: 1fr; gap: .1rem; }}
+    .evidence {{ text-align: left; }}
+    .keyrow {{ grid-template-columns: 4rem 1fr; gap: .6rem; }}
+    .plain, #searched p {{ word-break: break-word; }}
+    .note {{ font-size: .95rem; padding: .8rem .9rem; }}
+  }}
   .legend {{ background: #fafafa; border: 1px solid #e5e5e5;
              border-radius: 8px; padding: .9rem 1.1rem; margin-top: 1.6rem; }}
   .legend h3 {{ margin: 0 0 .5rem; font-size: 1rem; }}
