@@ -1099,6 +1099,14 @@ def main():
             print("WARNING: this service's public hostname is unknown, so "
                   "every search will be refused. Set PUBLIC_HOST to the "
                   "address people visit.")
+        if not os.environ.get("NCBI_EMAIL"):
+            print("NOTE: NCBI_EMAIL is not set, so every visitor is asked "
+                  "for an email address before they can search. Set it to "
+                  "your own address and the question disappears.")
+        if not os.environ.get("NCBI_API_KEY"):
+            print("NOTE: NCBI_API_KEY is not set. Searches work without "
+                  "one but run about three times slower, because doctors "
+                  "must be looked up one at a time.")
     else:
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         url = f"http://127.0.0.1:{server.server_port}"
