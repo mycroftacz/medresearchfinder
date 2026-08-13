@@ -406,10 +406,65 @@ def test_output_files():
     print("  timestamped results, safe filenames")
 
 
+def test_parallel_matches_sequential():
+    section("Looking several doctors up at once")
+    from Bio import Entrez
+
+    canned = {"A AA": [str(i) for i in range(30)],
+              "B BB": [str(i) for i in range(100, 118)],
+              "C CC": [str(i) for i in range(200, 209)],
+              "D DD": [],
+              "E EE": [str(i) for i in range(300, 303)]}
+    topics = ["Colitis, Ulcerative", "Crohn Disease", "Vedolizumab",
+              "Surgery / procedural"]
+
+    def fake_ids(author, affiliation, start_year, max_papers, pause):
+        return canned.get(author, [])
+
+    def fake_fetch(pmids, surname, initials, focus, patterns, pause,
+                   dropped=None, dept_pattern=None):
+        return [{"pmid": p, "mesh": topics[:1 + int(p) % 4],
+                 "substances": [], "text": "ulcerative colitis",
+                 "is_focus": True, "first_author": int(p) % 3 == 0}
+                for p in pmids]
+
+    roster = [{"name": f"Doctor {a}", "author": a, "affiliation": "NYU"}
+              for a in canned]
+    real_ids, real_fetch = profiler.find_paper_ids, profiler.fetch_articles
+    real_workers, real_key = profiler.PARALLEL_WITH_KEY, Entrez.api_key
+    profiler.find_paper_ids, profiler.fetch_articles = fake_ids, fake_fetch
+
+    def run(workers, key):
+        profiler.PARALLEL_WITH_KEY = workers
+        Entrez.api_key = key
+        try:
+            _, rows, thin = profiler.run_auto(
+                "ulcerative colitis", roster, "/tmp/mrf-parallel-test",
+                log=lambda *a: None)
+        finally:
+            Entrez.api_key = None
+        return (sorted((r["researcher"], r["topic"], r["papers"],
+                        r["first_author_papers"]) for r in rows),
+                sorted((t["name"], t["papers"]) for t in thin))
+
+    try:
+        sequential = run(1, None)
+        parallel = run(3, "pretend-key")
+        # Threads must not change the answer, only how long it takes.
+        check("parallel result matches sequential", parallel, sequential)
+        check("profiling actually exercised", len(sequential[0]) > 0, True)
+    finally:
+        profiler.find_paper_ids, profiler.fetch_articles = real_ids, real_fetch
+        profiler.PARALLEL_WITH_KEY = real_workers
+        Entrez.api_key = real_key
+    print("  same rosters, one worker and three")
+
+
 def main():
     for test in (test_urls, test_clinical, test_person_names, test_author_form,
                  test_injection, test_malformed_scrape, test_numbers,
-                 test_focus, test_rosters, test_output_files):
+                 test_focus, test_rosters, test_output_files,
+                 test_parallel_matches_sequential):
         test()
 
     print("\n" + "=" * 62)

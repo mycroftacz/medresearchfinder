@@ -737,7 +737,7 @@ def friendly_error(exc):
     """
     if isinstance(exc, directory_scraper.FriendlyError):
         return exc.message, exc.detail
-    if isinstance(exc, profiler.RateLimited):
+    if isinstance(exc, (profiler.RateLimited, profiler.ApiKeyRejected)):
         return str(exc), f"{type(exc).__name__}: {exc}"
 
     text = str(exc)

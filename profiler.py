@@ -53,8 +53,10 @@ import os
 import re
 import sys
 import time
+import threading
 import urllib.parse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.error import HTTPError
 
 try:
@@ -81,6 +83,11 @@ MIN_PROFILE_PAPERS = 5
 # One PubMed request per person; beyond this a run risks a rate-limit
 # block partway through, which loses the whole search.
 MAX_RESEARCHERS = 150
+
+# Researchers looked up at once when an API key raises the request
+# allowance. Three keeps the whole program near five requests a
+# second, comfortably inside the ten a key permits.
+PARALLEL_WITH_KEY = 3
 
 
 # MeSH headings too generic to be worth reporting, regardless of specialty.
@@ -219,6 +226,16 @@ class RateLimited(Exception):
     """PubMed asked us to slow down and kept asking."""
 
 
+class ApiKeyRejected(Exception):
+    """PubMed refused the API key.
+
+    Worth its own exception because the failure is silent otherwise: every
+    request fails identically, each researcher is recorded as having no
+    papers, and the report concludes that nobody publishes -- a confident
+    wrong answer produced by one mistyped setting.
+    """
+
+
 def _with_backoff(call, what, pause):
     """Retry a PubMed call through a rate limit or a server wobble.
 
@@ -233,6 +250,13 @@ def _with_backoff(call, what, pause):
         except HTTPError as exc:
             if exc.code == 403:
                 die_on_403(exc, what)
+            if exc.code == 400 and Entrez.api_key:
+                raise ApiKeyRejected(
+                    "The medical research database rejected the API key. "
+                    "Check NCBI_API_KEY: it should be the long string from "
+                    "your NCBI account settings. Searches work without a "
+                    "key -- remove the setting to run without one."
+                ) from exc
             if exc.code not in (429, 500, 502, 503, 504) or attempt == 2:
                 if exc.code == 429:
                     raise RateLimited(
@@ -519,48 +543,92 @@ def run_auto(condition, researchers, out_dir, log=print, on_progress=None,
     log("")
 
     # ---- pass 1: fetch everyone's papers --------------------------------
-    fetched = {}
-    queries = {}
-    excluded = []
-    for index, person in enumerate(researchers):
-        if on_progress:
-            on_progress(index, len(researchers))
+    # Without an API key PubMed allows three requests a second, which one
+    # worker already fills; asking for more only earns a rate-limit block
+    # that loses the whole run. A key raises the allowance to ten, which
+    # leaves room for a few researchers to be looked up at once.
+    workers = PARALLEL_WITH_KEY if Entrez.api_key else 1
+    fetched, queries, excluded = {}, {}, []
+    guard = threading.Lock()
+    finished = [0]
+
+    def look_up(person):
+        """One researcher's papers. Runs on a worker thread."""
         name = person["name"]
         surname = person["author"].split()[0]
-        initials = person["author"].split()[1] if " " in person["author"] else ""
-        log(f"Fetching {name} ...")
-        try:
-            pmids = find_paper_ids(person["author"], person["affiliation"],
-                                   start_year, max_papers, pause)
-            if not pmids:
-                log("    no papers found -- check name/affiliation spelling")
-                excluded.append((name, 0, "no papers found"))
-                continue
-            dropped = [0]
-            articles = fetch_articles(pmids, surname, initials,
-                                      {}, [], pause, dropped=dropped,
-                                      dept_pattern=dept_pattern)
-            for article in articles:
-                article["is_focus"] = auto_topics.is_focus_paper(article, focus)
-            hits = [a for a in articles if a["is_focus"]]
-            n_first = sum(1 for a in hits if a["first_author"])
-            log(f"    {len(articles)} papers, {len(hits)} on "
-                f"{focus['label']} ({n_first} first-author)"
-                + (f" -- ignored {dropped[0]} by someone with the same "
-                   f"surname" if dropped[0] else ""))
-            fetched[name] = articles
-            queries[name] = build_query(person["author"],
-                                        person["affiliation"], start_year)
-        except (SystemExit, RateLimited):
-            # Being rate-limited will not fix itself over the next 150
-            # requests; stop rather than fail everyone one at a time.
-            raise
-        except Exception as exc:
-            log(f"    ERROR: {exc}")
-            excluded.append((name, 0, f"error: {exc}"))
+        initials = (person["author"].split()[1]
+                    if " " in person["author"] else "")
+        pmids = find_paper_ids(person["author"], person["affiliation"],
+                               start_year, max_papers, pause)
+        if not pmids:
+            return name, None, "no papers found", 0
+        dropped = [0]
+        articles = fetch_articles(pmids, surname, initials, {}, [], pause,
+                                  dropped=dropped,
+                                  dept_pattern=dept_pattern)
+        for article in articles:
+            article["is_focus"] = auto_topics.is_focus_paper(article, focus)
+        return name, articles, None, dropped[0]
+
+    def record(person, outcome, error=None):
+        """Collect one result. Called with the lock held by the caller."""
+        name = person["name"]
+        if error is not None:
+            log(f"{name}: {error}")
+            excluded.append((name, 0, error))
+            return
+        _, articles, why, dropped = outcome
+        if articles is None:
+            log(f"{name}: no papers found -- check the name and hospital")
+            excluded.append((name, 0, why))
+            return
+        hits = [a for a in articles if a["is_focus"]]
+        n_first = sum(1 for a in hits if a["first_author"])
+        log(f"{name}: {len(articles)} papers, {len(hits)} on "
+            f"{focus['label']} ({n_first} first-author)"
+            + (f" -- ignored {dropped} by someone with the same surname"
+               if dropped else ""))
+        fetched[name] = articles
+        queries[name] = build_query(person["author"], person["affiliation"],
+                                    start_year)
 
     if on_progress:
-        on_progress(len(researchers), len(researchers))
+        on_progress(0, len(researchers))
+
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(look_up, p): p for p in researchers}
+            for future in as_completed(futures):
+                person = futures[future]
+                try:
+                    outcome = future.result()
+                    error = None
+                except (SystemExit, RateLimited, ApiKeyRejected):
+                    # Stop everything: neither a rate limit nor a bad key
+                    # clears over the next hundred requests, and the other
+                    # workers would only dig it deeper.
+                    for pending in futures:
+                        pending.cancel()
+                    raise
+                except Exception as exc:              # noqa: BLE001
+                    outcome, error = None, str(exc)
+                with guard:
+                    record(person, outcome, error)
+                    finished[0] += 1
+                    if on_progress:
+                        on_progress(finished[0], len(researchers))
+    else:
+        for person in researchers:
+            try:
+                outcome, error = look_up(person), None
+            except (SystemExit, RateLimited, ApiKeyRejected):
+                raise
+            except Exception as exc:                  # noqa: BLE001
+                outcome, error = None, str(exc)
+            record(person, outcome, error)
+            finished[0] += 1
+            if on_progress:
+                on_progress(finished[0], len(researchers))
 
     # ---- learn the vocabulary from the whole corpus ---------------------
     corpus = [a for arts in fetched.values() for a in arts if a["is_focus"]]
