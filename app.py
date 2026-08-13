@@ -476,7 +476,7 @@ async function runExample() {{
   // search cannot skip it. Fill the address in, then say exactly what is
   // still missing rather than failing silently.
   if (emailAsked &&
-      !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailEl.value.trim())) {{
+      !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(emailEl.value.trim())) {{
     showProblems(['The example page is filled in above. Add your email ' +
                   'address and the search will start.']);
     emailEl.scrollIntoView({{behavior: 'auto', block: 'center'}});
@@ -508,7 +508,7 @@ async function start() {{
   if (!urls) {{
     problems.push('Please paste at least one directory web address.');
   }}
-  if (emailAsked && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {{
+  if (emailAsked && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email)) {{
     problems.push('Please enter your email address. The medical research ' +
                   'database requires one with every search.');
   }}
